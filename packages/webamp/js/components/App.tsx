@@ -6,13 +6,14 @@ import {
   StrictMode,
 } from "react";
 import ReactDOM from "react-dom";
-import { FilePicker } from "../types";
+import { ContextMenuItem, FilePicker } from "../types";
 import { WINDOWS } from "../constants";
 import * as Selectors from "../selectors";
 import * as Actions from "../actionCreators";
 import * as Utils from "../utils";
 import MilkdropWindow from "../components/MilkdropWindow";
 import ContextMenuWrapper from "./ContextMenuWrapper";
+import { ContextMenuExtensions } from "./ContextMenu";
 import MainContextMenu from "./MainWindow/MainContextMenu";
 import WindowManager from "./WindowManager";
 import MainWindow from "./MainWindow";
@@ -29,6 +30,10 @@ import cssText from "../../css/webamp.css?inline";
 
 interface Props {
   filePickers: FilePicker[];
+  contextMenuExtensions?: {
+    main?: () => ContextMenuItem[];
+    track?: (trackIds: number[]) => ContextMenuItem[] | null;
+  };
   media: IMedia;
   parentDomNode: HTMLElement;
   onMount?: () => void;
@@ -40,6 +45,7 @@ interface Props {
 export default function App({
   media,
   filePickers,
+  contextMenuExtensions,
   onMount,
   parentDomNode,
 }: Props) {
@@ -145,6 +151,7 @@ export default function App({
 
   return ReactDOM.createPortal(
     <StrictMode>
+      <ContextMenuExtensions.Provider value={contextMenuExtensions ?? {}}>
       <Css>{cssText}</Css>
       <div onBlur={handleBlur}>
         <Skin />
@@ -157,6 +164,7 @@ export default function App({
           />
         </ContextMenuWrapper>
       </div>
+      </ContextMenuExtensions.Provider>
     </StrictMode>,
     webampNode
   );

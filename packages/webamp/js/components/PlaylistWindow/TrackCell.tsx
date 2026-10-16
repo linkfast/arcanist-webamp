@@ -1,4 +1,17 @@
-import { useCallback, ReactNode, TouchEvent } from "react";
+import {
+  useCallback,
+  useContext,
+  useEffect,
+  useState,
+  ReactNode,
+  TouchEvent,
+} from "react";
+import { useStore } from "react-redux";
+import ContextMenu, {
+  ContextMenuExtensions,
+  renderContextMenuItems,
+} from "../ContextMenu";
+import { AppState, ContextMenuItem } from "../../types";
 import classnames from "classnames";
 import * as Selectors from "../../selectors";
 import * as Actions from "../../actionCreators";
@@ -26,6 +39,51 @@ function TrackCell({ children, handleMoveClick, index, id }: Props) {
 
   const dispatch = useTypedDispatch();
   const playTrackNow = useActionCreator(Actions.playTrackNow);
+  const store = useStore<AppState>();
+  const extensions = useContext(ContextMenuExtensions);
+  const [menu, setMenu] = useState<{
+    x: number;
+    y: number;
+    items: ContextMenuItem[];
+  } | null>(null);
+
+  // The host page's menu for the selected tracks; without one, the main menu opens as before.
+  const onContextMenu = useCallback(
+    (e: React.MouseEvent<HTMLDivElement>) => {
+      e.preventDefault();
+      if (extensions.track == null) {
+        return;
+      }
+      const state = store.getState();
+      const selectedIds = new Set(Selectors.getSelectedTrackIds(state));
+      const ids = state.playlist.trackOrder.filter((t) => selectedIds.has(t));
+      const items = extensions.track(ids.length > 0 ? ids : [id]);
+      if (items == null) {
+        return;
+      }
+      e.stopPropagation();
+      setMenu({ x: e.pageX, y: e.pageY, items });
+    },
+    [extensions, store, id]
+  );
+
+  useEffect(() => {
+    if (menu == null) {
+      return;
+    }
+    const close = () => setMenu(null);
+    const onClick = (e: MouseEvent) => {
+      if (e.button !== 2) {
+        close();
+      }
+    };
+    document.addEventListener("click", onClick);
+    document.body.addEventListener("contextmenu", close);
+    return () => {
+      document.removeEventListener("click", onClick);
+      document.body.removeEventListener("contextmenu", close);
+    };
+  }, [menu]);
 
   const onMouseDown = useCallback(
     (e: React.MouseEvent<HTMLDivElement>) => {
@@ -80,10 +138,15 @@ function TrackCell({ children, handleMoveClick, index, id }: Props) {
       onClick={(e) => e.stopPropagation()}
       onMouseDown={onMouseDown}
       onTouchStart={handleTouchStart}
-      onContextMenu={(e) => e.preventDefault()}
+      onContextMenu={onContextMenu}
       onDoubleClick={() => playTrackNow(id)}
     >
       {children}
+      {menu != null && (
+        <ContextMenu selected offsetTop={menu.y} offsetLeft={menu.x}>
+          {renderContextMenuItems(menu.items)}
+        </ContextMenu>
+      )}
     </div>
   );
 }

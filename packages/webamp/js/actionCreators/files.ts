@@ -264,12 +264,13 @@ export function loadMediaFile(
     }
 
     if (metaData != null) {
-      const { artist, title, album } = metaData;
+      const { artist, title, album, albumArtUrl } = metaData;
       dispatch({
         type: "SET_MEDIA_TAGS",
         artist,
         title,
         album,
+        albumArtUrl,
         // For now, we lie about these next three things.
         // TODO: Ideally we would leave these as null and force a media data
         // fetch when the user starts playing.

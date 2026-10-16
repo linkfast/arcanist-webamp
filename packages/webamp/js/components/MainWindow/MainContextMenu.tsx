@@ -1,8 +1,15 @@
-import { memo, Fragment, useEffect } from "react";
+import { memo, Fragment, useContext, useEffect } from "react";
 import * as Actions from "../../actionCreators";
 import * as Selectors from "../../selectors";
 import { LOAD_STYLE, WINDOWS } from "../../constants";
-import { Hr, Node, Parent, LinkNode } from "../ContextMenu";
+import {
+  Hr,
+  Node,
+  Parent,
+  LinkNode,
+  ContextMenuExtensions,
+  renderContextMenuItems,
+} from "../ContextMenu";
 import PlaybackContextMenu from "../PlaybackContextMenu";
 import OptionsContextMenu from "../OptionsContextMenu";
 import SkinsContextMenu from "../SkinsContextMenu";
@@ -25,6 +32,8 @@ const MainContextMenu = memo(({ filePickers }: Props) => {
     type: "MAIN_CONTEXT_MENU_OPENED",
   }));
   const isMilkdropEnabled = useTypedSelector(Selectors.getMilkdropEnabled);
+  const extensions = useContext(ContextMenuExtensions);
+  const extraItems = extensions.main?.() ?? [];
 
   useEffect(() => {
     menuOpened();
@@ -38,6 +47,8 @@ const MainContextMenu = memo(({ filePickers }: Props) => {
         label="Webamp..."
       />
       <Hr />
+      {extraItems.length > 0 && renderContextMenuItems(extraItems)}
+      {extraItems.length > 0 && <Hr />}
       <Parent label="Play">
         <Node onClick={openMediaFileDialog} label="File..." hotkey="L" />
         {filePickers != null &&

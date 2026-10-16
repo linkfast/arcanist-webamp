@@ -720,6 +720,18 @@ export interface Options {
     }
   ];
   zIndex?: number;
+
+  /**
+   * Extra items shown at the top of the main context menu (right-click anywhere, or the main window's menu). Called
+   * every time the menu opens, so the items can reflect the current state.
+   */
+  mainContextMenuItems?: () => ContextMenuItem[];
+
+  /**
+   * The menu shown when right-clicking tracks of the playlist, given the ids of the selected tracks in playlist
+   * order (the clicked track is selected first). Return `null` to show the main context menu instead.
+   */
+  trackContextMenuItems?: (trackIds: number[]) => ContextMenuItem[] | null;
   handleTrackDropEvent?: (
     e: React.DragEvent<HTMLDivElement>
   ) => Track[] | null | Promise<Track[] | null>;
@@ -818,6 +830,19 @@ export type WindowSize = {
  * Either `url` or `blob` must be specified
  */
 export type Track = URLTrack | BlobTrack;
+
+/** An item of a context menu given by the host page: an entry, a submenu (with `children`) or a separator. */
+export type ContextMenuItem =
+  | { type: "separator" }
+  | {
+      type?: "item";
+      label: string;
+      onClick?: () => void;
+      checked?: boolean;
+      disabled?: boolean;
+      hotkey?: string;
+      children?: ContextMenuItem[];
+    };
 
 export interface PlaylistTrack {
   id: number;

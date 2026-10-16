@@ -320,7 +320,11 @@ class Webamp {
    * calling this method to control whether the track starts playing.
    */
   setCurrentTrack(index: number): void {
-    this.store.dispatch(Actions.playTrack(index));
+    // playTrack takes a track id, not its position in the playlist.
+    const id = this.store.getState().playlist.trackOrder[index];
+    if (id != null) {
+      this.store.dispatch(Actions.playTrack(id));
+    }
   }
 
   /**
@@ -530,6 +534,10 @@ class Webamp {
         <App
           media={this.media}
           filePickers={this.options.filePickers || []}
+          contextMenuExtensions={{
+            main: this.options.mainContextMenuItems,
+            track: this.options.trackContextMenuItems,
+          }}
           onMount={onMount}
           parentDomNode={contained ? node : document.body}
         />

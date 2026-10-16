@@ -2,8 +2,42 @@ import { useMemo, useEffect } from "react";
 import { createPortal } from "react-dom";
 import classnames from "classnames";
 
+import { createContext } from "react";
 import { useTypedSelector } from "../hooks";
 import * as Selectors from "../selectors";
+import { ContextMenuItem } from "../types";
+
+/** The context menu items the host page adds (Options.mainContextMenuItems / trackContextMenuItems). */
+export const ContextMenuExtensions = createContext<{
+  main?: () => ContextMenuItem[];
+  track?: (trackIds: number[]) => ContextMenuItem[] | null;
+}>({});
+
+/** Renders items given by the host page with the menu's own nodes. */
+export function renderContextMenuItems(items: ContextMenuItem[]): JSX.Element[] {
+  return items.map((item, i) => {
+    if (item.type === "separator") {
+      return <Hr key={i} />;
+    }
+    if (item.children != null) {
+      return (
+        <Parent key={i} label={item.label}>
+          {renderContextMenuItems(item.children)}
+        </Parent>
+      );
+    }
+    return (
+      <Node
+        key={i}
+        label={item.label}
+        checked={item.checked}
+        hotkey={item.hotkey}
+        className={item.disabled ? "disabled" : undefined}
+        onClick={item.disabled ? undefined : item.onClick}
+      />
+    );
+  });
+}
 
 interface PortalProps {
   zIndex: number;

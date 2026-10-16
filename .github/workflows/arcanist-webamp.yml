@@ -1,0 +1,66 @@
+name: Webamp for Arcanist
+
+# Builds packages/arcanist-webamp on every change. A tag such as arcanist-webamp-v0.2.0 (the version in its
+# package.json and arcanist-frontend.json) also publishes arcanist-webamp-<version>.zip as a GitHub Release, which
+# Arcanist bundles (BundledPlayer in src/Arcanist.Core/Arcanist.Core.csproj, pinned by version and SHA-256).
+
+on:
+  push:
+    branches: [arcanist]
+    tags: ["arcanist-webamp-v*"]
+  pull_request:
+    branches: [arcanist]
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9.12.0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22.x
+          cache: pnpm
+      # Only the player and what it uses: the whole monorepo needs native builds (skin-database's sqlite3).
+      - run: pnpm install --frozen-lockfile --filter "arcanist-webamp..."
+      - run: pnpm --filter ani-cursor --filter winamp-eqf run build
+      - run: pnpm --filter webamp test
+        env:
+          NODE_ENV: test
+      - run: pnpm --filter arcanist-webamp run build
+      - run: pnpm --filter arcanist-webamp run package ${{ github.ref_type == 'tag' && github.ref_name || '' }}
+      - uses: actions/upload-artifact@v4
+        with:
+          name: arcanist-webamp
+          path: packages/arcanist-webamp/release/
+
+  release:
+    name: Release
+    if: github.ref_type == 'tag'
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: arcanist-webamp
+          path: release
+      - env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          version="${TAG#arcanist-webamp-v}"
+          sha256="$(cut -d' ' -f1 release/*.sha256)"
+          prerelease=""
+          case "$version" in *-*) prerelease="--prerelease" ;; esac
+          gh release create "$TAG" release/* --repo "$GITHUB_REPOSITORY" --title "Webamp for Arcanist $version" $prerelease \
+            --notes "Install it from Arcanist's panel (Players → install from URL) with the zip's URL, or bundle it with Arcanist.
+
+          SHA-256 of arcanist-webamp-$version.zip: \`$sha256\`"

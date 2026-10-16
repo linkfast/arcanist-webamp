@@ -27,12 +27,24 @@ From the monorepo's root, with Node 22+ and pnpm 9 (`corepack pnpm`):
 
 ```bash
 pnpm install --filter "arcanist-webamp..."
-pnpm --filter arcanist-webamp build        # dist/: the player, with its arcanist-frontend.json
+pnpm --filter ani-cursor --filter winamp-eqf run build   # once: Webamp uses their built output
+pnpm --filter arcanist-webamp build        # dist/: the player, its arcanist-frontend.json, LICENSE.txt and THIRD-PARTY-NOTICES.txt
+pnpm --filter arcanist-webamp run package  # release/arcanist-webamp-<version>.zip and its SHA-256
 pnpm --filter arcanist-webamp start        # dev server; ARCANIST_URL points it at a server (default http://localhost:8484)
 ```
 
 Arcanist serves `dist/` when it is in its `wwwroot/players/webamp` (or `Arcanist:Frontends:BundledRoot`), or once
-installed from the panel as a `.zip` of it.
+installed from the panel with the zip (or its URL).
+
+## Releasing
+
+1. Raise `version` in `package.json` and `public/arcanist-frontend.json`.
+2. Push a tag `arcanist-webamp-v<version>`. The workflow `.github/workflows/arcanist-webamp.yml` builds the zip
+   (reproducible: same sources, same SHA-256) and publishes it as a GitHub Release with its SHA-256.
+3. In Arcanist, update the `BundledPlayer` item of `src/Arcanist.Core/Arcanist.Core.csproj` (version and SHA-256):
+   its packages download that zip when they are published.
+
+Upstream's own CI (`ci.yml`) only runs in captbaritone/webamp.
 
 ## License
 

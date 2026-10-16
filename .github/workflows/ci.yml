@@ -7,6 +7,8 @@ on:
 jobs:
   # Main CI job - using Turborepo for dependency management
   ci:
+    # Only upstream: this fork builds its own package (arcanist-webamp.yml).
+    if: github.repository == 'captbaritone/webamp'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4

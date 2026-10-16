@@ -8,7 +8,8 @@ import { DesktopBackground } from "./desktop/Background";
 import { Desktop } from "./desktop/Desktop";
 import { ArcanistMark } from "./desktop/Taskbar";
 import { errorText, t } from "./i18n";
-import { settings, skinStore } from "./settings";
+import { settings } from "./settings";
+import { skinFile } from "./skins";
 import { MenuHost } from "./ui/menu";
 import { Button, Input, Spinner, Toaster } from "./ui/ui";
 
@@ -47,8 +48,8 @@ function Root() {
     const node = host.current;
     const player = app.start();
     void (async () => {
-      if (settings.value.skin.kind === "custom") {
-        const skin = await skinStore.load();
+      if (settings.value.skin.kind !== "base") {
+        const skin = await skinFile(settings.value.skin).catch(() => null);
         if (skin) player.setSkin(skin);
         else settings.set({ skin: { kind: "base" } });
       }

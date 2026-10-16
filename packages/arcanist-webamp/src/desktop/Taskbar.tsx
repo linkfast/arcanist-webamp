@@ -87,6 +87,7 @@ function StartMenu({ onClose }: { onClose: () => void }) {
     ...(canUpload ? [window("upload")] : []),
     { type: "separator" },
     window("personalize"),
+    window("skins"),
     { label: t("start.accountSettings"), icon: <UserCog />, onClick: () => openPanel("account") },
     ...(managesServer() ? [{ label: t("start.panel"), icon: <Settings2 />, onClick: () => openPanel() }] : []),
     ...(source ? [{ label: t("icon.source"), icon: <Code />, onClick: () => globalThis.open(source, "_blank", "noopener") }] : []),

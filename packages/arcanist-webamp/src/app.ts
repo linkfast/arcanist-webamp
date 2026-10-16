@@ -100,6 +100,7 @@ export const app = {
             { label: t("menu.lyrics"), onClick: () => desktopWindows.open("lyrics") },
             { label: t("menu.upload"), onClick: () => desktopWindows.open("upload") },
             { label: t("menu.personalize"), onClick: () => desktopWindows.open("personalize") },
+            { label: t("menu.skins"), onClick: () => desktopWindows.open("skins") },
             { type: "separator" },
             { label: t("menu.account"), onClick: () => desktopWindows.open("account") },
             { label: t("menu.accountSettings"), onClick: () => openPanel("account") },

@@ -15,7 +15,8 @@ export type WindowKind =
   | "upload"
   | "lyrics"
   | "account"
-  | "personalize";
+  | "personalize"
+  | "skins";
 
 export interface DesktopWindow {
   id: string;

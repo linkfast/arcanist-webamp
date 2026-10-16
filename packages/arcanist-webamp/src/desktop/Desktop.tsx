@@ -1,5 +1,5 @@
 import { useState, type ReactNode } from "react";
-import { Code, Palette } from "lucide-react";
+import { Code } from "lucide-react";
 import { app, useLibraries } from "../app";
 import { t } from "../i18n";
 import { useSettings, type IconSize } from "../settings";
@@ -9,6 +9,7 @@ import { LibraryWindow } from "../windows/LibraryWindow";
 import { LyricsWindow, MixesWindow, StarTracksWindow } from "../windows/MusicWindows";
 import { PersonalizeWindow } from "../windows/PersonalizeWindow";
 import { PlaylistsWindow, SavePlaylistWindow } from "../windows/PlaylistWindows";
+import { SkinsWindow } from "../windows/SkinsWindow";
 import { KINDS, WEBAMP_KIND } from "./kinds";
 import { Taskbar } from "./Taskbar";
 import { desktopWindows, useDesktopWindows, type DesktopWindow, type WindowKind } from "./windows";
@@ -42,13 +43,7 @@ export function useDesktopIcons(): DesktopIcon[] {
     ...(canUpload ? [kind("upload")] : []),
     kind("account"),
     kind("personalize"),
-    {
-      id: "skins",
-      label: t("icon.skins"),
-      glyph: <Palette />,
-      tile: "bg-fuchsia-800",
-      open: () => globalThis.open("https://skins.webamp.org/", "_blank", "noopener"),
-    },
+    kind("skins"),
     ...(app.server?.sourceUrl
       ? [
           {
@@ -145,5 +140,7 @@ function WindowContent({ window: win }: { window: DesktopWindow }) {
       return <AccountWindow window={win} />;
     case "personalize":
       return <PersonalizeWindow window={win} />;
+    case "skins":
+      return <SkinsWindow window={win} />;
   }
 }

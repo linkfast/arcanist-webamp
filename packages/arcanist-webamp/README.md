@@ -15,11 +15,20 @@ comes with Arcanist as a bonus player, served at `/players/webamp/`.
 - **Personalize** (kept per browser, in localStorage and IndexedDB): light, dark or system theme with the panel's
   tokens, an accent color, Arcanist's own backgrounds (inline SVG, light and dark, slowly moving unless the system asks
   for less motion), a solid color or the user's own picture, the desktop icons, Milkdrop at start, Webamp's window
-  positions and a skin loaded from a `.wsz`.
+  positions.
+- **Skins:** a library with Webamp's base skin, the ones that come with the player (`skins/`) and the ones this browser
+  saved (IndexedDB), from a `.wsz` or from the [Winamp Skin Museum](https://skins.webamp.org/), browsed and searched in
+  a window through its public API (`api.webamp.org`) without leaving the player.
 - **Webamp's menus** gain Arcanist's features: the main menu's *Arcanist* submenu, and a menu of its own on the
   playlist's tracks (StarTrack, add to playlist, radio, album, artist, lyrics, download). LOAD LIST and SAVE LIST
   use Arcanist's playlists; ADD URL opens the library.
 - **Plays** are reported to Arcanist as they end (time actually played), so statistics and mixes follow them.
+
+## Skins that come with it
+
+Put `.wsz` files (and a screenshot of the same name, `.png` or `.jpg`) in `skins/`: the build publishes them at
+`skins/` with an `index.json`, and they go in the release zip. Only skins whose authors allow it, credited in
+`skins/CREDITS.md` (see `skins/README.md`).
 
 ## Changes to Webamp
 

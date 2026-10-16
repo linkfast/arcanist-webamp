@@ -8,6 +8,11 @@ export type ArcaneBackground = "astrolabe" | "constellations" | "sigil" | "auror
 export type Accent = "neutral" | "violet" | "indigo" | "teal" | "amber" | "rose";
 export type IconSize = "small" | "normal" | "large";
 
+export type SkinChoice =
+  | { kind: "base" }
+  | { kind: "bundled"; file: string; name: string }
+  | { kind: "saved"; id: string; name: string };
+
 export type Background = { kind: "arcane"; id: ArcaneBackground } | { kind: "color"; color: string } | { kind: "image" };
 
 export interface Settings {
@@ -21,8 +26,8 @@ export interface Settings {
   hiddenIcons: string[];
   /** Milkdrop's window open when the player starts. */
   milkdrop: boolean;
-  /** The skin Webamp starts with: its base skin, or the one the user loaded (kept in IndexedDB). */
-  skin: { kind: "base" } | { kind: "custom"; name: string };
+  /** The skin Webamp starts with: its base skin, one that comes with the player or one saved in this browser. */
+  skin: SkinChoice;
   /** The library the Library window shows; null is all of them. */
   libraryId: string | null;
 }
@@ -93,6 +98,10 @@ function load(): Settings {
     !["arcane", "color", "image"].includes(bg.kind)
   )
     settings.background = DEFAULTS.background;
+  // Before the skin library there was one loaded skin, kept as "current".
+  const skin = settings.skin as SkinChoice | { kind: "custom"; name: string } | undefined;
+  if (skin?.kind === "custom") settings.skin = { kind: "saved", id: "current", name: skin.name };
+  else if (!skin || !["base", "bundled", "saved"].includes(skin.kind)) settings.skin = DEFAULTS.skin;
   return settings;
 }
 
@@ -209,56 +218,3 @@ export async function downscaleImage(file: Blob): Promise<string> {
     bitmap.close();
   }
 }
-
-// ── The loaded skin, in IndexedDB (a .wsz is too big for localStorage) ─────────────────────────────
-
-const DB = "arcanist-webamp";
-const STORE = "skins";
-
-function database(): Promise<IDBDatabase> {
-  return new Promise((resolve, reject) => {
-    const request = indexedDB.open(DB, 1);
-    request.onupgradeneeded = () => request.result.createObjectStore(STORE);
-    request.onsuccess = () => resolve(request.result);
-    request.onerror = () => reject(request.error);
-  });
-}
-
-async function transact<T>(mode: IDBTransactionMode, run: (store: IDBObjectStore) => IDBRequest<T>): Promise<T> {
-  const db = await database();
-  try {
-    return await new Promise<T>((resolve, reject) => {
-      const request = run(db.transaction(STORE, mode).objectStore(STORE));
-      request.onsuccess = () => resolve(request.result);
-      request.onerror = () => reject(request.error);
-    });
-  } finally {
-    db.close();
-  }
-}
-
-export const skinStore = {
-  async save(blob: Blob): Promise<boolean> {
-    try {
-      await transact("readwrite", (store) => store.put(blob, "current"));
-      return true;
-    } catch {
-      return false;
-    }
-  },
-  async load(): Promise<Blob | null> {
-    try {
-      const blob = await transact<unknown>("readonly", (store) => store.get("current"));
-      return blob instanceof Blob ? blob : null;
-    } catch {
-      return null;
-    }
-  },
-  async clear(): Promise<void> {
-    try {
-      await transact("readwrite", (store) => store.delete("current"));
-    } catch {
-      // Nothing kept.
-    }
-  },
-};

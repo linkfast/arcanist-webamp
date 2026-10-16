@@ -1,6 +1,7 @@
 import { defineConfig } from "vite";
 import tailwindcss from "@tailwindcss/vite";
 import nodePolyfills from "rollup-plugin-polyfill-node";
+import { bundledSkins } from "./bundledSkins";
 import { thirdPartyNotices } from "./notices";
 
 // The Arcanist server the dev server talks to (the APIs are same-origin in production).
@@ -20,6 +21,8 @@ export default defineConfig({
     nodePolyfills(),
     // THIRD-PARTY-NOTICES.txt, next to LICENSE.txt (public/).
     thirdPartyNotices(),
+    // The skins of skins/, at skins/ with their index.json.
+    bundledSkins(),
   ],
   server: {
     proxy: {

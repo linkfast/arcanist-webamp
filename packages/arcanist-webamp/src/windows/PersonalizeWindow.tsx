@@ -1,9 +1,9 @@
 import { useRef, useState, type ReactNode } from "react";
-import { Check, ImagePlus, Link, Monitor, Moon, Paintbrush, RotateCcw, Sun, Upload } from "lucide-react";
+import { Check, ImagePlus, Link, Monitor, Moon, Paintbrush, Palette, RotateCcw, Sun, Upload } from "lucide-react";
 import { app } from "../app";
 import { ArcaneArt } from "../desktop/Background";
 import { useDesktopIcons } from "../desktop/Desktop";
-import { Window, type DesktopWindow } from "../desktop/windows";
+import { desktopWindows, Window, type DesktopWindow } from "../desktop/windows";
 import { t, type TextKey } from "../i18n";
 import {
   ACCENTS,
@@ -11,7 +11,6 @@ import {
   downscaleImage,
   isDark,
   settings,
-  skinStore,
   useSettings,
   type Accent,
   type IconSize,
@@ -94,9 +93,8 @@ export function PersonalizeWindow({ window: win }: { window: DesktopWindow }) {
   const dark = isDark(s);
   const icons = useDesktopIcons();
   const image = useRef<HTMLInputElement>(null);
-  const skin = useRef<HTMLInputElement>(null);
   const [url, setUrl] = useState("");
-  const [busy, setBusy] = useState<"image" | "skin" | null>(null);
+  const [busy, setBusy] = useState<"image" | null>(null);
   const [confirmReset, setConfirmReset] = useState(false);
   const bg = s.background;
 
@@ -111,31 +109,11 @@ export function PersonalizeWindow({ window: win }: { window: DesktopWindow }) {
     }
   };
 
-  const chooseSkin = async (file: File) => {
-    setBusy("skin");
-    try {
-      app.player.setSkin(file);
-      const kept = await skinStore.save(file);
-      settings.set({ skin: { kind: "custom", name: file.name } });
-      if (!kept) toast(t("personalize.skinSession"), true);
-    } finally {
-      setBusy(null);
-    }
-  };
-
-  const baseSkin = () => {
-    app.player.setBaseSkin();
-    settings.set({ skin: { kind: "base" } });
-    void skinStore.clear();
-  };
-
   const resetAll = () => {
-    const hadSkin = settings.value.skin.kind === "custom";
+    // The saved skins stay in the library; Webamp goes back to its own.
+    const hadSkin = settings.value.skin.kind !== "base";
     settings.reset();
-    if (hadSkin) {
-      app.player.setBaseSkin();
-      void skinStore.clear();
-    }
+    if (hadSkin) app.player.setBaseSkin();
     setConfirmReset(false);
     toast(t("personalize.resetDone"));
   };
@@ -310,30 +288,16 @@ export function PersonalizeWindow({ window: win }: { window: DesktopWindow }) {
           <div className="grid gap-2">
             <span className="text-sm">
               {t("personalize.skin")}:{" "}
-              <span className="font-medium">{s.skin.kind === "custom" ? s.skin.name : t("personalize.skinBase")}</span>
+              <span className="font-medium">{s.skin.kind === "base" ? t("personalize.skinBase") : s.skin.name}</span>
             </span>
             <div className="flex flex-wrap gap-2">
-              <Button size="sm" variant="outline" disabled={s.skin.kind === "base"} onClick={baseSkin}>
-                {t("personalize.skinUseBase")}
+              <Button size="sm" variant="outline" onClick={() => desktopWindows.open("skins")}>
+                <Palette /> {t("personalize.skinLibrary")}
               </Button>
-              <Button size="sm" variant="outline" disabled={busy === "skin"} onClick={() => skin.current?.click()}>
-                {busy === "skin" ? <Spinner /> : <Upload />} {t("personalize.skinLoad")}
-              </Button>
-              <Button size="sm" variant="link" onClick={() => globalThis.open("https://skins.webamp.org/", "_blank", "noopener")}>
-                {t("icon.skins")}
+              <Button size="sm" variant="outline" onClick={() => desktopWindows.open("skins", { tab: "museum" })}>
+                {t("personalize.skinMuseum")}
               </Button>
             </div>
-            <input
-              ref={skin}
-              type="file"
-              accept=".wsz,.zip"
-              className="hidden"
-              onChange={(e) => {
-                const file = e.target.files?.[0];
-                e.target.value = "";
-                if (file) void chooseSkin(file);
-              }}
-            />
             <p className="text-xs text-muted-foreground">{t("personalize.skinHelp")}</p>
           </div>
         </Group>

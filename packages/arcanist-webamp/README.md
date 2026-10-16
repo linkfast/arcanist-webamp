@@ -47,7 +47,8 @@ installed from the panel with the zip (or its URL).
 
 ## Releasing
 
-1. Raise `version` in `package.json` and `public/arcanist-frontend.json`.
+1. Raise `version` in `package.json` and `public/arcanist-frontend.json`. Until Arcanist has a tested release, versions carry
+   a pre-release suffix (`0.2.0-alpha.1`), and the workflow publishes them as pre-releases.
 2. Push a tag `arcanist-webamp-v<version>`. The workflow `.github/workflows/arcanist-webamp.yml` builds the zip
    (reproducible: same sources, same SHA-256) and publishes it as a GitHub Release with its SHA-256.
 3. In Arcanist, update the `BundledPlayer` item of `src/Arcanist.Core/Arcanist.Core.csproj` (version and SHA-256):

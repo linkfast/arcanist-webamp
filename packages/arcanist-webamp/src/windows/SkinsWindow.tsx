@@ -121,6 +121,21 @@ function MySkins() {
     await savedSkins.remove(id);
   };
 
+  // A suggested skin comes from the museum the first time: then it is a saved one like the others.
+  const fromMuseum = async (skin: MuseumSkin) => {
+    setBusy(skin.md5);
+    try {
+      const { choice, blob, kept } = await museum.save(skin);
+      await applySkin(choice, blob);
+      if (!kept) toast(t("skins.session"), true);
+    } catch {
+      toast(t("skins.downloadFailed"), true);
+    } finally {
+      setBusy(null);
+    }
+  };
+  const saved = new Set(library.saved.map((skin) => skin.id));
+
   return (
     <div className="grid gap-4">
       <div className="flex flex-wrap items-center gap-2">
@@ -162,6 +177,18 @@ function MySkins() {
             />
           );
         })}
+        {library.suggested
+          .filter((skin) => !saved.has(`museum:${skin.md5}`))
+          .map((skin) => (
+            <SkinCard
+              key={skin.md5}
+              name={skin.name}
+              screenshot={skin.screenshotUrl}
+              busy={busy === skin.md5}
+              badge={t("skins.suggested")}
+              onUse={() => void fromMuseum(skin)}
+            />
+          ))}
         {library.saved.map((skin) => {
           const choice: SkinChoice = { kind: "saved", id: skin.id, name: skin.name };
           return (

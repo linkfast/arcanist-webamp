@@ -4,16 +4,15 @@ import type { Plugin } from "vite";
 
 // The skins that come with the player: the .wsz files of skins/ (each with a screenshot of the same name, .png or
 // .jpg, when there is one), published at skins/ next to the player with the index.json the Skins window reads.
-// skins/skins.json may give a skin its name and effects ("oled"); the skins it names come first, in its order.
+// skins/skins.json may give a skin its name and effects ("oled"); the skins it names come first, in its order. It
+// may also suggest skins of the Winamp Skin Museum ("museum:<md5>"): listed, but downloaded from the museum when
+// chosen, so they are not redistributed with the player.
 
 const folder = resolve(__dirname, "skins");
 
-export interface BundledSkinEntry {
-  file: string;
-  name: string;
-  screenshot?: string;
-  effects?: string[];
-}
+export type BundledSkinEntry =
+  | { file: string; name: string; screenshot?: string; effects?: string[] }
+  | { museum: string; name: string };
 
 type Metadata = Record<string, { name?: string; effects?: string[] }>;
 
@@ -29,7 +28,10 @@ function entries(): BundledSkinEntry[] {
   const meta = metadata();
   const order = Object.keys(meta);
   const rank = (file: string) => (order.includes(file) ? order.indexOf(file) : order.length);
-  return files
+  const suggested = order
+    .filter((key) => /^museum:[0-9a-f]{32}$/.test(key))
+    .map((key) => ({ museum: key.slice(7), name: meta[key].name ?? key.slice(7) }));
+  const bundled = files
     .filter((f) => /\.wsz$/i.test(f))
     .sort((a, b) => rank(a) - rank(b) || a.localeCompare(b))
     .map((file) => {
@@ -42,11 +44,12 @@ function entries(): BundledSkinEntry[] {
         ...(effects?.length ? { effects } : {}),
       };
     });
+  return [...bundled, ...suggested];
 }
 
 /** The files to publish: every skin, its screenshot and the credits. */
 function published(): string[] {
-  const list = entries().flatMap((e) => (e.screenshot ? [e.file, e.screenshot] : [e.file]));
+  const list = entries().flatMap((e) => ("museum" in e ? [] : e.screenshot ? [e.file, e.screenshot] : [e.file]));
   return existsSync(join(folder, "CREDITS.md")) ? [...list, "CREDITS.md"] : list;
 }
 

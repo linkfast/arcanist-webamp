@@ -112,24 +112,43 @@ export const savedSkins = {
 
 // ── Skins that come with the player ────────────────────────────────────────────────────────────────
 
-let bundledList: Promise<BundledSkin[]> | null = null;
+interface Bundled {
+  files: BundledSkin[];
+  /** Skins of the Winamp Skin Museum the player suggests: downloaded from the museum when chosen. */
+  suggested: MuseumSkin[];
+}
 
-export function bundledSkins(): Promise<BundledSkin[]> {
+let bundledList: Promise<Bundled> | null = null;
+
+export function bundledSkins(): Promise<Bundled> {
   bundledList ??= fetch("skins/index.json")
-    .then((r) => (r.ok ? (r.json() as Promise<BundledSkin[]>) : []))
-    .then((list) => (Array.isArray(list) ? list : []))
-    .catch(() => []);
+    .then((r) => (r.ok ? (r.json() as Promise<unknown>) : []))
+    .then((list) => {
+      const entries = Array.isArray(list) ? (list as (BundledSkin | { museum: string; name: string })[]) : [];
+      return {
+        files: entries.filter((e): e is BundledSkin => "file" in e),
+        suggested: entries.filter((e): e is { museum: string; name: string } => "museum" in e).map((e) => museumSkin(e.museum, e.name)),
+      };
+    })
+    .catch(() => ({ files: [], suggested: [] }));
   return bundledList;
 }
 
+interface Library {
+  bundled: BundledSkin[];
+  suggested: MuseumSkin[];
+  saved: SavedSkin[];
+  loading: boolean;
+}
+
 /** The library, kept up to date as skins are saved and removed. */
-export function useSkinLibrary(): { bundled: BundledSkin[]; saved: SavedSkin[]; loading: boolean } {
-  const [state, setState] = useState<{ bundled: BundledSkin[]; saved: SavedSkin[]; loading: boolean }>({ bundled: [], saved: [], loading: true });
+export function useSkinLibrary(): Library {
+  const [state, setState] = useState<Library>({ bundled: [], suggested: [], saved: [], loading: true });
   useEffect(() => {
     let alive = true;
     const refresh = () =>
       void Promise.all([bundledSkins(), savedSkins.list()]).then(([bundled, saved]) => {
-        if (alive) setState({ bundled, saved, loading: false });
+        if (alive) setState({ bundled: bundled.files, suggested: bundled.suggested, saved, loading: false });
       });
     refresh();
     listeners.add(refresh);
@@ -205,6 +224,17 @@ async function museumQuery<T>(query: string, variables: Record<string, unknown>,
   const body = (await response.json()) as { data?: T; errors?: unknown[] };
   if (!response.ok || !body.data) throw new Error("museum_unavailable");
   return body.data;
+}
+
+/** A museum skin known by its MD5 (the museum keeps its files and screenshots under it). */
+export function museumSkin(md5: string, name: string): MuseumSkin {
+  return {
+    md5,
+    name,
+    screenshotUrl: `https://r2.webampskins.org/screenshots/${md5}.png`,
+    downloadUrl: `https://r2.webampskins.org/skins/${md5}.wsz`,
+    museumUrl: `${MUSEUM_URL}skin/${md5}`,
+  };
 }
 
 function toMuseumSkin(node: MuseumNode): MuseumSkin {

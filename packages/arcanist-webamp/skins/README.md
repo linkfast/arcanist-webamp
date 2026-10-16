@@ -9,6 +9,9 @@ Put `.wsz` files here: the build (`bundledSkins.ts`) publishes them at `skins/` 
 - **`skins.json` (optional):** `{ "<file>.wsz": { "name": "…", "effects": ["oled"] } }`. The skins it names come first,
   in its order. `"oled"` turns on OLED mode while the skin is in use: a pure black desktop with Arcanist's art glowing,
   and an aura around Webamp that follows the music.
+- **Suggested from the Winamp Skin Museum:** a `"museum:<md5>": { "name": "…" }` entry in `skins.json` lists a museum
+  skin in "My skins" without shipping it: it is downloaded from skins.webamp.org the first time it is chosen, then kept
+  like any other. Use it for skins whose authors did not allow redistributing them (most say "All rights reserved").
 - **Credits:** only skins whose authors allow redistributing them. Write each one's author, source and permission in
   `CREDITS.md` here: it is published next to them (`skins/CREDITS.md`) and goes in the release zip.
 

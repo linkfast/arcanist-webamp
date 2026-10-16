@@ -10,5 +10,20 @@
     "effects": [
       "oled"
     ]
+  },
+  "museum:d6010aa35bed659bc1311820daa4b341": {
+    "name": "Bento Classified"
+  },
+  "museum:cd251187a5e6ff54ce938d26f1f2de02": {
+    "name": "Winamp3 Classified"
+  },
+  "museum:b0fb83cc20af3abe264291bb17fb2a13": {
+    "name": "Winamp5 Classified"
+  },
+  "museum:10ee1c158f8f36be937a3ce4aeb40000": {
+    "name": "OS8 AMP - Aquamarine"
+  },
+  "museum:4940411806499a2bd0fcee92a1a802fe": {
+    "name": "screwedwa by boostr29"
   }
 }

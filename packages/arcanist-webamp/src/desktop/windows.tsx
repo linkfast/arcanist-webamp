@@ -3,7 +3,8 @@ import { X } from "lucide-react";
 import { Button, cn } from "../ui/ui";
 import { t } from "../i18n";
 
-// Arcanist's own windows on the desktop: draggable cards above Webamp, one per kind unless asked otherwise.
+// Arcanist's own windows on the desktop: draggable cards stacked with Webamp's (whichever was clicked last is in
+// front), one per kind unless asked otherwise.
 
 export type WindowKind =
   | "library"
@@ -24,7 +25,7 @@ export interface DesktopWindow {
   z: number;
 }
 
-/** Above Webamp (whose windows and menus use 10 and 11). */
+/** Above Webamp at first (its windows and menus start at 10 and 11); then they share one stacking order. */
 const BASE_Z = 100;
 
 let windows: DesktopWindow[] = [];
@@ -68,6 +69,15 @@ export const desktopWindows = {
   closeAll(): void {
     windows = [];
     emit();
+  },
+  /** The front of the stacking order, for Webamp: reserves `slots` layers and returns the first. */
+  raise(slots = 1): number {
+    topZ += slots;
+    return topZ - slots + 1;
+  },
+  /** The highest layer in use. */
+  top(): number {
+    return topZ;
   },
 };
 

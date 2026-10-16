@@ -32,7 +32,7 @@ export function Desktop() {
 
   const window = (kind: WindowKind) => () => desktopWindows.open(kind);
   const icons: Icon[] = [
-    { id: "webamp", label: t("icon.webamp"), glyph: <Zap className="fill-amber-300 text-amber-500" />, tile: "bg-slate-800", open: () => app.player.webamp.reopen() },
+    { id: "webamp", label: t("icon.webamp"), glyph: <Zap className="fill-amber-300 text-amber-500" />, tile: "bg-slate-800", open: () => app.player.reopen() },
     { id: "library", label: t("icon.library"), glyph: <Library />, tile: "bg-sky-700", open: window("library") },
     { id: "playlists", label: t("icon.playlists"), glyph: <ListMusic />, tile: "bg-emerald-700", open: window("playlists") },
     { id: "starTracks", label: t("icon.starTracks"), glyph: <Star className="fill-amber-300 text-amber-300" />, tile: "bg-violet-700", open: window("starTracks") },

@@ -3,6 +3,7 @@ import type { ContextMenuItem, Track as WebampTrack, WindowLayout } from "../../
 import isButterchurnSupported from "butterchurn/dist/isSupported.min";
 import { absolute, artworkUrl } from "../api/client";
 import { recordPlay, type Track } from "../api/arcanist";
+import { desktopWindows } from "../desktop/windows";
 
 /** Webamp's windows and menus sit below Arcanist's own windows. */
 export const WEBAMP_Z = 10;
@@ -31,6 +32,8 @@ function credits(track: Track): string {
  */
 export class ArcanistPlayer {
   readonly webamp: WebampLazy;
+  /** Webamp's layer: its windows use it, its menus the one above. */
+  private z = WEBAMP_Z;
   /** Arcanist's track of each stream URL in the playlist. */
   private readonly byUrl = new Map<string, Track>();
   private readonly listeners = new Set<() => void>();
@@ -91,6 +94,27 @@ export class ArcanistPlayer {
 
     this.webamp.__onStateChange(() => this.emit());
     new PlayReporter(this);
+    // Clicking any of Webamp's windows brings it in front of Arcanist's, as clicking one of those does for it.
+    document.addEventListener(
+      "pointerdown",
+      (event) => {
+        if (event.target instanceof Element && event.target.closest("#webamp")) this.toFront();
+      },
+      true,
+    );
+  }
+
+  /** Brings Webamp's windows (and their menus) in front of Arcanist's. */
+  toFront(): void {
+    if (this.z + 1 >= desktopWindows.top()) return;
+    this.z = desktopWindows.raise(2);
+    this.webamp.store.dispatch({ type: "SET_Z_INDEX", zIndex: this.z } as never);
+  }
+
+  /** Shows Webamp again (after it was closed) in front. */
+  reopen(): void {
+    this.webamp.reopen();
+    this.toFront();
   }
 
   /** Webamp's track for Arcanist's: no tag reading and no duration probe. */
@@ -112,13 +136,13 @@ export class ArcanistPlayer {
 
   play(tracks: Track[]): void {
     if (tracks.length === 0) return;
-    this.webamp.reopen();
+    this.reopen();
     this.webamp.setTracksToPlay(tracks.map((t) => this.toWebamp(t)));
   }
 
   append(tracks: Track[]): void {
     if (tracks.length === 0) return;
-    this.webamp.reopen();
+    this.reopen();
     this.webamp.appendTracks(tracks.map((t) => this.toWebamp(t)));
   }
 

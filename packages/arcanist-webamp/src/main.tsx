@@ -9,6 +9,7 @@ import { Desktop } from "./desktop/Desktop";
 import { ArcanistMark } from "./desktop/Taskbar";
 import { errorText, t } from "./i18n";
 import { settings } from "./settings";
+import { startAura } from "./player/aura";
 import { skinFile } from "./skins";
 import { MenuHost } from "./ui/menu";
 import { Button, Input, Spinner, Toaster } from "./ui/ui";
@@ -47,6 +48,7 @@ function Root() {
     webampRendered = true;
     const node = host.current;
     const player = app.start();
+    startAura(player);
     void (async () => {
       if (settings.value.skin.kind !== "base") {
         const skin = await skinFile(settings.value.skin).catch(() => null);
@@ -54,6 +56,8 @@ function Root() {
         else settings.set({ skin: { kind: "base" } });
       }
       await player.webamp.renderWhenReady(node);
+      // Eject opens the library (player.ts): its tooltip says so.
+      document.querySelector("#webamp #eject")?.setAttribute("title", t("menu.library").replace("…", ""));
     })();
   }, [stage]);
 

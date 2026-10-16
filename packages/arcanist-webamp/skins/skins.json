@@ -1,0 +1,14 @@
+{
+  "Arcanist_Light.wsz": {
+    "name": "Arcanist Light"
+  },
+  "Arcanist_Dark.wsz": {
+    "name": "Arcanist Dark"
+  },
+  "Arcanist_OLED.wsz": {
+    "name": "Arcanist OLED",
+    "effects": [
+      "oled"
+    ]
+  }
+}

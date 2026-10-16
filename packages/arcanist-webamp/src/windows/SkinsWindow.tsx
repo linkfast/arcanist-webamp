@@ -149,7 +149,7 @@ function MySkins() {
           onUse={() => void choose("base", { kind: "base" })}
         />
         {library.bundled.map((skin) => {
-          const choice: SkinChoice = { kind: "bundled", file: skin.file, name: skin.name };
+          const choice: SkinChoice = { kind: "bundled", file: skin.file, name: skin.name, ...(skin.effects?.length ? { effects: skin.effects } : {}) };
           return (
             <SkinCard
               key={skin.file}
@@ -157,7 +157,7 @@ function MySkins() {
               screenshot={skin.screenshot ? `skins/${encodeURIComponent(skin.screenshot)}` : undefined}
               current={sameSkin(s.skin, choice)}
               busy={busy === skin.file}
-              badge={t("skins.bundled")}
+              badge={skin.effects?.includes("oled") ? "OLED" : t("skins.bundled")}
               onUse={() => void choose(skin.file, choice)}
             />
           );

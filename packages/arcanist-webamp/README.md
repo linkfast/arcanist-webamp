@@ -19,6 +19,12 @@ comes with Arcanist as a bonus player, served at `/players/webamp/`.
 - **Skins:** a library with Webamp's base skin, the ones that come with the player (`skins/`) and the ones this browser
   saved (IndexedDB), from a `.wsz` or from the [Winamp Skin Museum](https://skins.webamp.org/), browsed and searched in
   a window through its public API (`api.webamp.org`) without leaving the player.
+- **Arcanist's own skins:** Light, Dark and OLED, drawn from scratch by `skins-src/arcanist_skins.py`. Their buttons
+  say what they do in Arcanist: eject is LIB (it opens the library, in any skin; ADD FILE and dropping files still
+  reach the computer's), ADD URL is LIB, the playlists' button is LISTS. **OLED** also turns the desktop pure black
+  with Arcanist's art glowing and a slow beam of light sweeping it, makes Arcanist's windows black, and puts an aura
+  around Webamp's windows that breathes with the music and flashes on the beats (only the level, slowly, with reduced
+  motion).
 - **Webamp's menus** gain Arcanist's features: the main menu's *Arcanist* submenu, and a menu of its own on the
   playlist's tracks (StarTrack, add to playlist, radio, album, artist, lyrics, download). LOAD LIST and SAVE LIST
   use Arcanist's playlists; ADD URL opens the library.
@@ -49,6 +55,7 @@ pnpm --filter ani-cursor --filter winamp-eqf run build   # once: Webamp uses the
 pnpm --filter arcanist-webamp build        # dist/: the player, its arcanist-frontend.json, LICENSE.txt and THIRD-PARTY-NOTICES.txt
 pnpm --filter arcanist-webamp run package  # release/arcanist-webamp-<version>.zip and its SHA-256
 pnpm --filter arcanist-webamp start        # dev server; ARCANIST_URL points it at a server (default http://localhost:8484)
+python skins-src/arcanist_skins.py         # from this package (with Pillow): Arcanist's skins into skins/
 ```
 
 Arcanist serves `dist/` when it is in its `wwwroot/players/webamp` (or `Arcanist:Frontends:BundledRoot`), or once

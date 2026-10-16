@@ -103,6 +103,18 @@ export class ArcanistPlayer {
 
     this.webamp.__onStateChange(() => this.emit());
     new PlayReporter(this);
+    // Eject ("open file", in the main window and the playlist) opens Arcanist's library instead of the computer's files,
+    // which ADD FILE and dropping files still reach. Caught before Webamp's own handler (React listens on its root).
+    document.addEventListener(
+      "click",
+      (event) => {
+        if (!(event.target instanceof Element) || !event.target.closest("#webamp #eject, #webamp .playlist-eject-button")) return;
+        event.stopPropagation();
+        event.preventDefault();
+        hooks.addFromLibrary();
+      },
+      true,
+    );
     // Clicking any of Webamp's windows brings it in front of Arcanist's, as clicking one of those does for it.
     document.addEventListener(
       "pointerdown",

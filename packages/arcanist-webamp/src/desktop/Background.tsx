@@ -1,8 +1,9 @@
 import { memo, useId, useMemo, type CSSProperties, type ReactNode } from "react";
-import { isDark, settings, useSettings, type ArcaneBackground } from "../settings";
+import { isDark, isOled, settings, useSettings, type ArcaneBackground } from "../settings";
 
 // The desktop's backgrounds: Arcanist's own (an arcane library: astrolabes, runes and constellations), drawn as
-// inline SVG with no image or network, in a light and a dark version; a solid color; or the user's picture.
+// inline SVG with no image or network, in a light and a dark version; a solid color; or the user's picture. With the
+// Arcanist OLED skin, the art glows on pure black and a slow beam of light sweeps it.
 
 /** Seeded random numbers: the same stars every time. */
 function random(seed: number): () => number {
@@ -241,7 +242,7 @@ function Sigil({ p, dark }: { p: Palette; dark: boolean }) {
   );
 }
 
-function Aurora({ p, dark }: { p: Palette; dark: boolean }) {
+function Aurora({ p, dark, oled }: { p: Palette; dark: boolean; oled?: boolean }) {
   const blobs = dark
     ? [
         ["#0f766e", 0.42],
@@ -267,9 +268,10 @@ function Aurora({ p, dark }: { p: Palette; dark: boolean }) {
         ))}
       </defs>
       <g className="arcane-drift">
-        <ellipse cx={360} cy={260} rx={620} ry={380} fill={`url(#${id}-0)`} opacity={blobs[0][1] as number} />
-        <ellipse cx={1250} cy={340} rx={640} ry={420} fill={`url(#${id}-1)`} opacity={blobs[1][1] as number} />
-        <ellipse cx={820} cy={900} rx={720} ry={360} fill={`url(#${id}-2)`} opacity={blobs[2][1] as number} />
+        {/* On OLED the clouds stay faint: most of the screen stays off. */}
+        <ellipse cx={360} cy={260} rx={620} ry={380} fill={`url(#${id}-0)`} opacity={(blobs[0][1] as number) * (oled ? 0.3 : 1)} />
+        <ellipse cx={1250} cy={340} rx={640} ry={420} fill={`url(#${id}-1)`} opacity={(blobs[1][1] as number) * (oled ? 0.3 : 1)} />
+        <ellipse cx={820} cy={900} rx={720} ry={360} fill={`url(#${id}-2)`} opacity={(blobs[2][1] as number) * (oled ? 0.3 : 1)} />
       </g>
       <Stars seed={19} count={110} p={p} dark={dark} />
       <g className="arcane-spin" fill="none" stroke={p.line} strokeWidth={0.8} opacity={0.12 * a}>
@@ -285,27 +287,86 @@ function Aurora({ p, dark }: { p: Palette; dark: boolean }) {
   );
 }
 
-const DRAWINGS: Record<ArcaneBackground, (props: { p: Palette; dark: boolean }) => ReactNode> = {
+const DRAWINGS: Record<ArcaneBackground, (props: { p: Palette; dark: boolean; oled?: boolean }) => ReactNode> = {
   astrolabe: Astrolabe,
   constellations: Constellations,
   sigil: Sigil,
   aurora: Aurora,
 };
 
-/** One of Arcanist's backgrounds, in the light or dark version. */
+/** Where each background's beam of light turns, in OLED mode (its center, as on the screen). */
+const SWEEP_CENTER: Record<ArcaneBackground, [number, number]> = {
+  astrolabe: [70, 50],
+  constellations: [50, 135],
+  sigil: [50, 50],
+  aurora: [50, 52],
+};
+
+/**
+ * The OLED version: the dark art on pure black, its lines glowing (an SVG filter, drawn once: the art stays still),
+ * and a beam of light that sweeps it. The beam costs no repaint: a mask turns one way and the brighter copy of the
+ * art inside it turns back, so the art stays put and only the beam moves.
+ */
+function OledArt({ id, animate, style }: { id: ArcaneBackground; animate: boolean; style?: CSSProperties }) {
+  const p = PALETTES[id].dark;
+  const Drawing = DRAWINGS[id];
+  const glow = `oled${useId().replace(/[^a-zA-Z0-9]/g, "")}`;
+  const art = (bright: boolean) => (
+    <svg viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="xMidYMid slice" width="100%" height="100%" aria-hidden="true" style={{ display: "block" }}>
+      <defs>
+        <filter id={`${glow}-${bright ? 1 : 0}`} x="-5%" y="-5%" width="110%" height="110%">
+          <feComponentTransfer in="SourceGraphic" result="lines">
+            <feFuncA type="linear" slope={bright ? 4.5 : 2.4} />
+          </feComponentTransfer>
+          <feGaussianBlur in="lines" stdDeviation={bright ? 4 : 2.5} result="blur" />
+          <feMerge>
+            <feMergeNode in="blur" />
+            <feMergeNode in="blur" />
+            <feMergeNode in="lines" />
+          </feMerge>
+        </filter>
+      </defs>
+      <g filter={`url(#${glow}-${bright ? 1 : 0})`}>
+        <Drawing p={p} dark oled />
+      </g>
+    </svg>
+  );
+  const [x, y] = SWEEP_CENTER[id];
+  return (
+    <div style={{ ...style, background: "#000", overflow: "hidden" }}>
+      {art(false)}
+      {animate && (
+        <div className="oled-sweep" style={{ left: `calc(${x}vw - 150vmax)`, top: `calc(${y}vh - 150vmax)` }}>
+          <div className="oled-sweep-art" style={{ left: `calc(150vmax - ${x}vw)`, top: `calc(150vmax - ${y}vh)`, transformOrigin: `${x}vw ${y}vh` }}>
+            {art(true)}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/** One of Arcanist's backgrounds, in the light or dark version (or the OLED one). */
 export const ArcaneArt = memo(function ArcaneArt({
   id,
   dark,
+  oled = false,
   animate = false,
   className,
   style,
 }: {
   id: ArcaneBackground;
   dark: boolean;
+  oled?: boolean;
   animate?: boolean;
   className?: string;
   style?: CSSProperties;
 }) {
+  if (oled) return <OledArt id={id} animate={animate} style={style} />;
+  return <FlatArt id={id} dark={dark} animate={animate} className={className} style={style} />;
+});
+
+function FlatArt({ id, dark, animate, className, style }: { id: ArcaneBackground; dark: boolean; animate: boolean; className?: string; style?: CSSProperties }) {
   const p = PALETTES[id][dark ? "dark" : "light"];
   const Drawing = DRAWINGS[id];
   const sky = useMemo(
@@ -322,7 +383,7 @@ export const ArcaneArt = memo(function ArcaneArt({
       </svg>
     </div>
   );
-});
+}
 
 /** The desktop's background, behind Webamp and Arcanist's windows. */
 export function DesktopBackground() {
@@ -330,6 +391,8 @@ export function DesktopBackground() {
   const bg = s.background;
   const dark = isDark(s);
   const style: CSSProperties = { position: "fixed", inset: 0, zIndex: 0, pointerEvents: "none" };
+  // The OLED skin: Arcanist's art (the chosen one, or the astrolabe) glowing on black, whatever the background.
+  if (isOled(s)) return <ArcaneArt id={bg.kind === "arcane" ? bg.id : "astrolabe"} dark oled animate={s.animate} style={style} />;
   if (bg.kind === "color") return <div style={{ ...style, background: bg.color }} />;
   if (bg.kind === "image" && settings.wallpaper)
     return (

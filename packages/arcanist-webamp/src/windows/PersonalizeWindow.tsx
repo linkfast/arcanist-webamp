@@ -10,6 +10,7 @@ import {
   ARCANE_BACKGROUNDS,
   downscaleImage,
   isDark,
+  isOled,
   settings,
   useSettings,
   type Accent,
@@ -158,6 +159,7 @@ export function PersonalizeWindow({ window: win }: { window: DesktopWindow }) {
         <Group title={t("personalize.theme")}>
           <Segmented label={t("personalize.theme")} value={s.theme} options={theme} onChange={(value) => settings.set({ theme: value })} />
           <p className="text-xs text-muted-foreground">{t("personalize.themeHelp")}</p>
+          {isOled(s) && <p className="text-xs text-muted-foreground">{t("personalize.themeOled")}</p>}
         </Group>
 
         <Group title={t("personalize.accent")}>

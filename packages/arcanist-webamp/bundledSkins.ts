@@ -4,6 +4,7 @@ import type { Plugin } from "vite";
 
 // The skins that come with the player: the .wsz files of skins/ (each with a screenshot of the same name, .png or
 // .jpg, when there is one), published at skins/ next to the player with the index.json the Skins window reads.
+// skins/skins.json may give a skin its name and effects ("oled"); the skins it names come first, in its order.
 
 const folder = resolve(__dirname, "skins");
 
@@ -11,18 +12,35 @@ export interface BundledSkinEntry {
   file: string;
   name: string;
   screenshot?: string;
+  effects?: string[];
+}
+
+type Metadata = Record<string, { name?: string; effects?: string[] }>;
+
+function metadata(): Metadata {
+  const path = join(folder, "skins.json");
+  return existsSync(path) ? (JSON.parse(readFileSync(path, "utf8")) as Metadata) : {};
 }
 
 function entries(): BundledSkinEntry[] {
   if (!existsSync(folder)) return [];
   const files = readdirSync(folder);
   const base = (file: string) => file.slice(0, file.lastIndexOf("."));
+  const meta = metadata();
+  const order = Object.keys(meta);
+  const rank = (file: string) => (order.includes(file) ? order.indexOf(file) : order.length);
   return files
     .filter((f) => /\.wsz$/i.test(f))
-    .sort((a, b) => a.localeCompare(b))
+    .sort((a, b) => rank(a) - rank(b) || a.localeCompare(b))
     .map((file) => {
       const screenshot = files.find((f) => /\.(png|jpe?g)$/i.test(f) && base(f) === base(file));
-      return { file, name: base(file).replace(/_+/g, " ").trim(), ...(screenshot ? { screenshot } : {}) };
+      const { name, effects } = meta[file] ?? {};
+      return {
+        file,
+        name: name ?? base(file).replace(/_+/g, " ").trim(),
+        ...(screenshot ? { screenshot } : {}),
+        ...(effects?.length ? { effects } : {}),
+      };
     });
 }
 

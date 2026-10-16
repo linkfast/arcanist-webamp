@@ -10,7 +10,8 @@ export type IconSize = "small" | "normal" | "large";
 
 export type SkinChoice =
   | { kind: "base" }
-  | { kind: "bundled"; file: string; name: string }
+  /** effects: what the skin also changes around Webamp ("oled": a black desktop with glowing art, and an aura). */
+  | { kind: "bundled"; file: string; name: string; effects?: string[] }
   | { kind: "saved"; id: string; name: string };
 
 export type Background = { kind: "arcane"; id: ArcaneBackground } | { kind: "color"; color: string } | { kind: "image" };
@@ -115,8 +116,14 @@ function emit(): void {
   for (const listener of listeners) listener();
 }
 
-/** Whether Arcanist's windows are dark now. */
+/** Whether the skin in use turns on OLED mode: pure black, glowing art and an aura around Webamp. */
+export function isOled(settings = current): boolean {
+  return settings.skin.kind === "bundled" && (settings.skin.effects?.includes("oled") ?? false);
+}
+
+/** Whether Arcanist's windows are dark now (always in OLED mode). */
 export function isDark(settings = current): boolean {
+  if (isOled(settings)) return true;
   return settings.theme === "system" ? (systemDark?.matches ?? true) : settings.theme === "dark";
 }
 
@@ -131,14 +138,15 @@ function darkDesktop(): boolean {
     });
     return 0.2126 * r + 0.7152 * g + 0.0722 * b < 0.4;
   }
-  // Photos: light labels with a strong shadow read on almost anything.
-  return bg.kind === "image" ? true : isDark();
+  // Photos: light labels with a strong shadow read on almost anything. OLED mode is black.
+  return bg.kind === "image" || isOled() ? true : isDark();
 }
 
 /** The theme on <html>: the `dark` class (as in Arcanist's panel), the accent and the desktop's lightness. */
 function apply(): void {
   const root = document.documentElement;
   root.classList.toggle("dark", isDark());
+  root.classList.toggle("oled", isOled());
   root.dataset.accent = current.accent;
   root.dataset.desktop = darkDesktop() ? "dark" : "light";
 }

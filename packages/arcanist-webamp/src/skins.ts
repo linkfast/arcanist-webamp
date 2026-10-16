@@ -8,6 +8,8 @@ export interface BundledSkin {
   file: string;
   name: string;
   screenshot?: string;
+  /** What else it changes ("oled"), from skins/skins.json. */
+  effects?: string[];
 }
 
 export interface SavedSkin {

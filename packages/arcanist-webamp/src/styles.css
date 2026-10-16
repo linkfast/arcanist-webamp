@@ -56,6 +56,20 @@
   --taskbar: oklch(0.17 0.02 286 / 70%);
 }
 
+/* OLED mode (the Arcanist OLED skin): pure black, so the pixels around the art and the windows stay off. */
+:root.oled {
+  --background: #000;
+  --card: #000;
+  --popover: #000;
+  --secondary: oklch(0.17 0.03 290);
+  --muted: oklch(0.15 0.03 290);
+  --accent: oklch(0.17 0.04 290);
+  --border: oklch(0.62 0.2 292 / 32%);
+  --input: oklch(0.62 0.2 292 / 40%);
+  --desktop: #000;
+  --taskbar: rgb(0 0 0 / 88%);
+}
+
 /* Accents: the primary color of Arcanist's windows (buttons, selection, focus). Tailwind's 600 in light, 500 in
    dark. */
 :root[data-accent="violet"] {
@@ -165,6 +179,40 @@
   .arcane-animated * {
     animation: none !important;
   }
+}
+
+/* OLED mode's beam of light: a wedge-shaped mask turns around the art's center while the brighter copy of the art
+   inside it turns back, so only the beam moves (both are compositor animations). */
+.oled-sweep {
+  position: absolute;
+  width: 300vmax;
+  height: 300vmax;
+  -webkit-mask-image: conic-gradient(transparent 0deg, rgb(0 0 0 / 0.9) 12deg, rgb(0 0 0 / 0.35) 34deg, transparent 64deg, transparent 360deg);
+  mask-image: conic-gradient(transparent 0deg, rgb(0 0 0 / 0.9) 12deg, rgb(0 0 0 / 0.35) 34deg, transparent 64deg, transparent 360deg);
+  animation: arcane-spin 48s linear infinite;
+  will-change: transform;
+}
+.oled-sweep-art {
+  position: absolute;
+  width: 100vw;
+  height: 100vh;
+  animation: arcane-spin-back 48s linear infinite;
+  will-change: transform;
+}
+@media (prefers-reduced-motion: reduce) {
+  .oled-sweep {
+    display: none;
+  }
+}
+
+/* The aura around Webamp's windows, following the music (player/aura.ts sets --aura and --aura-kick, 0 to 1). */
+#webamp.aura #main-window,
+#webamp.aura #equalizer-window,
+#webamp.aura #playlist-window,
+#webamp.aura .gen-window {
+  box-shadow:
+    0 0 calc(6px + var(--aura, 0) * 30px) calc(var(--aura, 0) * 4px) rgb(139 92 246 / calc(0.35 + var(--aura, 0) * 0.55)),
+    0 0 calc(2px + var(--aura-kick, 0) * 46px) calc(var(--aura-kick, 0) * 6px) rgb(251 191 36 / calc(var(--aura-kick, 0) * 0.45));
 }
 
 @theme inline {

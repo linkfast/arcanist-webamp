@@ -1,0 +1,11 @@
+{
+  "id": "webamp",
+  "name": "Webamp",
+  "version": "0.1.0",
+  "description": "The Winamp 2 player in the browser, playing your Arcanist library: playlists, StarTracks, mixes, lyrics and uploads on its own desktop.",
+  "author": "LinkFast S.A. and Arcanist contributors; Webamp by Jordan Eldredge",
+  "license": "AGPL-3.0-or-later (Webamp: MIT)",
+  "homepage": "https://github.com/linkfast/arcanist",
+  "minApiVersion": 1,
+  "entry": "index.html"
+}

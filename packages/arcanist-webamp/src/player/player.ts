@@ -1,9 +1,13 @@
 import WebampLazy from "../../../webamp/js/webampLazy";
 import type { ContextMenuItem, Track as WebampTrack, WindowLayout } from "../../../webamp/js/types";
+import { loadDefaultSkin, setWindowLayout, toggleWindow } from "../../../webamp/js/actionCreators";
+import { centerWindows } from "../../../webamp/js/actionCreators/windows";
+import { setSkinFromBlob } from "../../../webamp/js/actionCreators/files";
 import isButterchurnSupported from "butterchurn/dist/isSupported.min";
 import { absolute, artworkUrl } from "../api/client";
 import { recordPlay, type Track } from "../api/arcanist";
-import { desktopWindows } from "../desktop/windows";
+import { desktopWindows, TASKBAR_HEIGHT } from "../desktop/windows";
+import { settings } from "../settings";
 
 /** Webamp's windows and menus sit below Arcanist's own windows. */
 export const WEBAMP_Z = 10;
@@ -37,15 +41,20 @@ export class ArcanistPlayer {
   /** Arcanist's track of each stream URL in the playlist. */
   private readonly byUrl = new Map<string, Track>();
   private readonly listeners = new Set<() => void>();
+  /** Where Webamp's windows start (and go back to). */
+  private readonly layout: WindowLayout;
 
   constructor(hooks: PlayerHooks) {
     const butterchurn = isButterchurnSupported() as boolean;
+    // Milkdrop starts open unless the user turned it off (it can still be opened from Webamp's menu).
+    const milkdrop = butterchurn && settings.value.milkdrop;
     const layout: WindowLayout = {
       main: { position: { left: 0, top: 0 } },
       equalizer: { position: { left: 0, top: 116 } },
       playlist: { position: { left: 0, top: 232 }, size: { extraHeight: 4, extraWidth: 0 } },
-      ...(butterchurn ? { milkdrop: { position: { left: 275, top: 0 }, size: { extraHeight: 12, extraWidth: 7 } } } : {}),
+      ...(milkdrop ? { milkdrop: { position: { left: 275, top: 0 }, size: { extraHeight: 12, extraWidth: 7 } } } : {}),
     };
+    this.layout = layout;
 
     this.webamp = new WebampLazy({
       zIndex: WEBAMP_Z,
@@ -86,7 +95,7 @@ export class ArcanistPlayer {
                   butterchurnPresetObject: preset,
                 }));
               },
-              butterchurnOpen: true,
+              butterchurnOpen: milkdrop,
             },
           }
         : {}),
@@ -109,6 +118,37 @@ export class ArcanistPlayer {
     if (this.z + 1 >= desktopWindows.top()) return;
     this.z = desktopWindows.raise(2);
     this.webamp.store.dispatch({ type: "SET_Z_INDEX", zIndex: this.z } as never);
+  }
+
+  /** Webamp's layer in the desktop's stacking order. */
+  get zIndex(): number {
+    return this.z;
+  }
+
+  /** Whether Webamp was closed (its taskbar button opens it again). */
+  get closed(): boolean {
+    return this.webamp.store.getState().display.closed;
+  }
+
+  /** Puts Webamp's windows back where they start: open, stacked and centered above the taskbar. */
+  resetLayout(): void {
+    const dispatch = this.webamp.store.dispatch as (action: unknown) => void;
+    this.webamp.reopen();
+    const windows = this.webamp.store.getState().windows.genWindows as Record<string, { open: boolean }>;
+    for (const id of ["main", "equalizer", "playlist"] as const) if (!windows[id]?.open) dispatch(toggleWindow(id));
+    dispatch(setWindowLayout(this.layout));
+    dispatch(centerWindows({ left: 0, top: 0, width: innerWidth, height: innerHeight - TASKBAR_HEIGHT }));
+    this.toFront();
+  }
+
+  /** A skin (.wsz) for Webamp. */
+  setSkin(skin: Blob): void {
+    (this.webamp.store.dispatch as (action: unknown) => void)(setSkinFromBlob(skin));
+  }
+
+  /** Webamp's own skin. */
+  setBaseSkin(): void {
+    this.webamp.store.dispatch(loadDefaultSkin());
   }
 
   /** Shows Webamp again (after it was closed) in front. */

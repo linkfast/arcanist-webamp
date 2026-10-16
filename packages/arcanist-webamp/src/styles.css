@@ -3,10 +3,37 @@
 @import "tailwindcss/theme.css" layer(theme);
 @import "tailwindcss/utilities.css" layer(utilities);
 
-/* The tokens of Arcanist's panel (spartan-ng / shadcn "nova", neutral), dark. */
+/* The tokens of Arcanist's panel (spartan-ng / shadcn "nova", neutral): light, and dark with the `dark` class on
+   <html>, as the panel does. */
 :root {
-  color-scheme: dark;
+  color-scheme: light;
   --radius: 0.625rem;
+  --background: oklch(1 0 0);
+  --foreground: oklch(0.145 0 0);
+  --card: oklch(1 0 0);
+  --card-foreground: oklch(0.145 0 0);
+  --popover: oklch(1 0 0);
+  --popover-foreground: oklch(0.145 0 0);
+  --primary: oklch(0.205 0 0);
+  --primary-foreground: oklch(0.985 0 0);
+  --secondary: oklch(0.97 0 0);
+  --secondary-foreground: oklch(0.205 0 0);
+  --muted: oklch(0.97 0 0);
+  --muted-foreground: oklch(0.556 0 0);
+  --accent: oklch(0.97 0 0);
+  --accent-foreground: oklch(0.205 0 0);
+  --destructive: oklch(0.577 0.245 27.325);
+  --border: oklch(0.922 0 0);
+  --input: oklch(0.922 0 0);
+  --ring: oklch(0.708 0 0);
+  --desktop: #e9e6f5;
+  /* The taskbar, translucent over the background. */
+  --taskbar: oklch(0.985 0.004 286 / 72%);
+  --taskbar-height: 44px;
+}
+
+:root.dark {
+  color-scheme: dark;
   --background: oklch(0.145 0 0);
   --foreground: oklch(0.985 0 0);
   --card: oklch(0.205 0 0);
@@ -25,7 +52,119 @@
   --border: oklch(1 0 0 / 10%);
   --input: oklch(1 0 0 / 15%);
   --ring: oklch(0.556 0 0);
-  --desktop: #3a6ea5;
+  --desktop: #120f24;
+  --taskbar: oklch(0.17 0.02 286 / 70%);
+}
+
+/* Accents: the primary color of Arcanist's windows (buttons, selection, focus). Tailwind's 600 in light, 500 in
+   dark. */
+:root[data-accent="violet"] {
+  --primary: oklch(0.541 0.281 293.009);
+  --primary-foreground: oklch(0.969 0.016 293.756);
+  --ring: oklch(0.702 0.183 293.541);
+}
+:root.dark[data-accent="violet"] {
+  --primary: oklch(0.606 0.25 292.717);
+  --ring: oklch(0.491 0.27 292.581);
+}
+:root[data-accent="indigo"] {
+  --primary: oklch(0.511 0.262 276.966);
+  --primary-foreground: oklch(0.962 0.018 272.314);
+  --ring: oklch(0.673 0.182 276.935);
+}
+:root.dark[data-accent="indigo"] {
+  --primary: oklch(0.585 0.233 277.117);
+  --ring: oklch(0.457 0.24 277.023);
+}
+:root[data-accent="teal"] {
+  --primary: oklch(0.6 0.118 184.704);
+  --primary-foreground: oklch(0.984 0.014 180.72);
+  --ring: oklch(0.777 0.152 181.912);
+}
+:root.dark[data-accent="teal"] {
+  --primary: oklch(0.704 0.14 182.503);
+  --primary-foreground: oklch(0.277 0.046 192.524);
+  --ring: oklch(0.511 0.096 186.391);
+}
+:root[data-accent="amber"] {
+  --primary: oklch(0.666 0.179 58.318);
+  --primary-foreground: oklch(0.987 0.022 95.277);
+  --ring: oklch(0.828 0.189 84.429);
+}
+:root.dark[data-accent="amber"] {
+  --primary: oklch(0.769 0.188 70.08);
+  --primary-foreground: oklch(0.279 0.077 45.635);
+  --ring: oklch(0.555 0.163 48.998);
+}
+:root[data-accent="rose"] {
+  --primary: oklch(0.586 0.253 17.585);
+  --primary-foreground: oklch(0.969 0.015 12.422);
+  --ring: oklch(0.712 0.194 13.428);
+}
+:root.dark[data-accent="rose"] {
+  --primary: oklch(0.645 0.246 16.439);
+  --ring: oklch(0.514 0.222 16.935);
+}
+
+/* The icons' labels: light on a dark desktop, dark on a light one. */
+:root {
+  --desktop-label: oklch(0.985 0 0);
+  --desktop-label-shadow: 0 1px 2px rgb(0 0 0 / 0.85), 0 0 6px rgb(0 0 0 / 0.45);
+}
+:root[data-desktop="light"] {
+  --desktop-label: oklch(0.2 0.02 286);
+  --desktop-label-shadow: 0 1px 2px rgb(255 255 255 / 0.85), 0 0 6px rgb(255 255 255 / 0.6);
+}
+
+/* The built-in backgrounds' slow movement: transforms only (no repaints), never with reduced motion. */
+@keyframes arcane-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+@keyframes arcane-spin-back {
+  to {
+    transform: rotate(-360deg);
+  }
+}
+@keyframes arcane-glow {
+  0%,
+  100% {
+    opacity: 0.35;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+@keyframes arcane-drift {
+  0%,
+  100% {
+    transform: translate3d(0, 0, 0) scale(1);
+  }
+  50% {
+    transform: translate3d(2%, -2%, 0) scale(1.06);
+  }
+}
+.arcane-animated .arcane-spin {
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: arcane-spin 600s linear infinite;
+}
+.arcane-animated .arcane-spin-back {
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: arcane-spin-back 900s linear infinite;
+}
+.arcane-animated .arcane-glow {
+  animation: arcane-glow 9s ease-in-out infinite;
+}
+.arcane-animated .arcane-drift {
+  animation: arcane-drift 120s ease-in-out infinite;
+}
+@media (prefers-reduced-motion: reduce) {
+  .arcane-animated * {
+    animation: none !important;
+  }
 }
 
 @theme inline {
@@ -68,43 +207,46 @@ body {
   position: static;
 }
 
-/* Arcanist's own windows and dialogs: a minimal reset, only inside them. */
-.ui,
-.ui *,
-.ui *::before,
-.ui *::after {
-  box-sizing: border-box;
-  border-width: 0;
-  border-style: solid;
-  border-color: var(--border);
-}
-.ui {
-  color: var(--foreground);
-  font-size: 14px;
-  line-height: 1.5;
-}
-.ui:where(ul, ol),
-.ui :where(h1, h2, h3, h4, p, ul, ol, figure) {
-  margin: 0;
-  padding: 0;
-}
-.ui:where(ul, ol),
-.ui :where(ul, ol) {
-  list-style: none;
-}
-.ui :where(button, input, select, textarea) {
-  font: inherit;
-  color: inherit;
-  margin: 0;
-}
-.ui :where(button) {
-  cursor: pointer;
-  background: transparent;
-}
-.ui :where(img, svg) {
-  display: block;
-  max-width: 100%;
-}
-.ui :where(a) {
-  color: inherit;
+/* Arcanist's own windows and dialogs: a minimal reset, only inside them. In the base layer, so that Tailwind's
+   utilities (bg-primary, border...) win over it. */
+@layer base {
+  .ui,
+  .ui *,
+  .ui *::before,
+  .ui *::after {
+    box-sizing: border-box;
+    border-width: 0;
+    border-style: solid;
+    border-color: var(--border);
+  }
+  .ui {
+    color: var(--foreground);
+    font-size: 14px;
+    line-height: 1.5;
+  }
+  .ui:where(ul, ol),
+  .ui :where(h1, h2, h3, h4, p, ul, ol, figure) {
+    margin: 0;
+    padding: 0;
+  }
+  .ui:where(ul, ol),
+  .ui :where(ul, ol) {
+    list-style: none;
+  }
+  .ui :where(button, input, select, textarea) {
+    font: inherit;
+    color: inherit;
+    margin: 0;
+  }
+  .ui :where(button) {
+    cursor: pointer;
+    background: transparent;
+  }
+  .ui :where(img, svg) {
+    display: block;
+    max-width: 100%;
+  }
+  .ui :where(a) {
+    color: inherit;
+  }
 }

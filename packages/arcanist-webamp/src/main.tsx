@@ -4,8 +4,12 @@ import "./styles.css";
 import { serverInfo } from "./api/arcanist";
 import { login, refresh } from "./api/client";
 import { app } from "./app";
+import { DesktopBackground } from "./desktop/Background";
 import { Desktop } from "./desktop/Desktop";
+import { ArcanistMark } from "./desktop/Taskbar";
 import { errorText, t } from "./i18n";
+import { settings, skinStore } from "./settings";
+import { MenuHost } from "./ui/menu";
 import { Button, Input, Spinner, Toaster } from "./ui/ui";
 
 type Stage = "loading" | "setup" | "login" | "ready" | "error";
@@ -15,6 +19,11 @@ let webampRendered = false;
 function Root() {
   const [stage, setStage] = useState<Stage>("loading");
   const host = useRef<HTMLDivElement>(null);
+  // The player exists before the desktop renders (its taskbar follows Webamp); Webamp itself renders after.
+  const ready = () => {
+    app.start();
+    setStage("ready");
+  };
 
   useEffect(() => {
     (async () => {
@@ -22,25 +31,37 @@ function Root() {
         const info = await serverInfo();
         app.setServer(info);
         if (!info.setupCompleted) return setStage("setup");
-        setStage((await refresh()) ? "ready" : "login");
+        if (await refresh()) ready();
+        else setStage("login");
       } catch {
         setStage("error");
       }
     })();
   }, []);
 
-  // Webamp lives outside React's tree: it renders once, into the desktop.
+  // Webamp lives outside React's tree: it renders once, into the desktop (above the taskbar), with the skin the
+  // user loaded last.
   useEffect(() => {
     if (stage !== "ready" || webampRendered || !host.current) return;
     webampRendered = true;
-    void app.start().webamp.renderWhenReady(host.current);
+    const node = host.current;
+    const player = app.start();
+    void (async () => {
+      if (settings.value.skin.kind === "custom") {
+        const skin = await skinStore.load();
+        if (skin) player.setSkin(skin);
+        else settings.set({ skin: { kind: "base" } });
+      }
+      await player.webamp.renderWhenReady(node);
+    })();
   }, [stage]);
 
   return (
     <>
-      <div ref={host} className="absolute inset-0" style={{ pointerEvents: "none" }} />
+      <DesktopBackground />
+      <div ref={host} className="absolute inset-x-0 top-0" style={{ pointerEvents: "none", bottom: "var(--taskbar-height)" }} />
       {stage === "ready" && <Desktop />}
-      {stage === "login" && <Login onDone={() => setStage("ready")} />}
+      {stage === "login" && <Login onDone={ready} />}
       {(stage === "loading" || stage === "setup" || stage === "error") && (
         <div className="ui absolute inset-0 grid place-items-center">
           <div className="grid justify-items-center gap-3 rounded-xl border bg-[var(--card)] p-6 text-sm shadow-xl">
@@ -52,13 +73,14 @@ function Root() {
             {stage === "setup" && (
               <>
                 <p>{t("app.setup")}</p>
-                <Button onClick={() => location.assign("/admin/setup")}>{t("app.setupLink")}</Button>
+                <Button onClick={() => location.assign(new URL("/admin/setup", location.origin).href)}>{t("app.setupLink")}</Button>
               </>
             )}
             {stage === "error" && <p>{errorText("server_error")}</p>}
           </div>
         </div>
       )}
+      <MenuHost />
       <Toaster />
     </>
   );
@@ -90,6 +112,7 @@ function Login({ onDone }: { onDone: () => void }) {
         }}
       >
         <div className="grid gap-1">
+          <ArcanistMark className="mb-2 size-10" />
           <h1 className="text-lg font-semibold">{t("login.title")}</h1>
           {server && <p className="text-xs text-muted-foreground">{t("login.server", { name: server.name, version: server.version })}</p>}
         </div>

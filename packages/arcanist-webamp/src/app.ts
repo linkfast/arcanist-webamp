@@ -1,10 +1,11 @@
-import type { ContextMenuItem } from "../../webamp/js/types";
+import { useSyncExternalStore } from "react";
 import * as api from "./api/arcanist";
-import { absolute, session } from "./api/client";
+import { session } from "./api/client";
 import { desktopWindows } from "./desktop/windows";
-import { t, errorText } from "./i18n";
+import { t } from "./i18n";
+import { songMenu } from "./menus";
 import { ArcanistPlayer } from "./player/player";
-import { toast } from "./ui/ui";
+import { settings } from "./settings";
 
 // What the whole player shares: the Webamp instance, the server, and the user's playlists (for the menus, which
 // are built synchronously).
@@ -13,6 +14,23 @@ let player: ArcanistPlayer | null = null;
 let server: api.ServerInfo | null = null;
 let playlists: api.Playlist[] = [];
 let pendingLoad: ((tracks: api.Track[] | null) => void) | null = null;
+let libraries: api.Library[] | null = null;
+let loadingLibraries: Promise<api.Library[]> | null = null;
+const libraryListeners = new Set<() => void>();
+
+/** A page of Arcanist's panel (same server, wherever this player is mounted), in a new tab. */
+export function openPanel(path = ""): void {
+  window.open(new URL(`/admin/${path}`, location.origin).href, "_blank");
+}
+
+/** Whether the user may use the panel beyond their account: administrators and managers. */
+export function managesServer(): boolean {
+  const user = session.user;
+  return (
+    user?.role === "ADMIN" ||
+    ["MANAGE_LIBRARIES", "MANAGE_USERS", "MANAGE_SETTINGS", "RUN_SCANS", "VIEW_ALL_STATS"].some((p) => user?.permissions.includes(p))
+  );
+}
 
 export const app = {
   get player(): ArcanistPlayer {
@@ -36,6 +54,33 @@ export const app = {
     }
     return playlists;
   },
+  /** The libraries the user sees (loaded once). */
+  get libraries(): api.Library[] | null {
+    return libraries;
+  },
+  loadLibraries(): Promise<api.Library[]> {
+    loadingLibraries ??= api
+      .libraries()
+      .then((list) => {
+        libraries = list;
+        for (const listener of libraryListeners) listener();
+        return list;
+      })
+      .catch((e) => {
+        loadingLibraries = null;
+        throw e;
+      });
+    return loadingLibraries;
+  },
+  /** Whether the user can choose a library: the server filters by library and they see more than one. */
+  get canChooseLibrary(): boolean {
+    return (server?.features.includes("LIBRARY_FILTER") ?? false) && (libraries?.length ?? 0) > 1;
+  },
+  /** The library the lists show (the chosen one, while it is still there); null is all of them. */
+  get libraryId(): string | null {
+    const id = settings.value.libraryId;
+    return id && app.canChooseLibrary && libraries!.some((l) => l.id === id) ? id : null;
+  },
   /** The playlist window answers Webamp's LOAD LIST with the chosen playlist's tracks. */
   resolveLoad(tracks: api.Track[] | null): void {
     pendingLoad?.(tracks);
@@ -54,12 +99,15 @@ export const app = {
             { label: t("menu.mixes"), onClick: () => desktopWindows.open("mixes") },
             { label: t("menu.lyrics"), onClick: () => desktopWindows.open("lyrics") },
             { label: t("menu.upload"), onClick: () => desktopWindows.open("upload") },
+            { label: t("menu.personalize"), onClick: () => desktopWindows.open("personalize") },
             { type: "separator" },
             { label: t("menu.account"), onClick: () => desktopWindows.open("account") },
+            { label: t("menu.accountSettings"), onClick: () => openPanel("account") },
+            ...(managesServer() ? [{ label: t("menu.panel"), onClick: () => openPanel() }] : []),
           ],
         },
       ],
-      trackMenu: (tracks, ids) => trackMenu(tracks, ids),
+      trackMenu: (tracks, ids) => songMenu(tracks, { webampIds: ids }),
       loadList: () =>
         new Promise((resolve) => {
           app.resolveLoad(null);
@@ -70,6 +118,9 @@ export const app = {
       addFromLibrary: () => desktopWindows.open("library"),
     });
     void app.refreshPlaylists();
+    void app.loadLibraries().catch(() => {
+      // The windows that need them ask again.
+    });
     return player;
   },
 };
@@ -85,76 +136,13 @@ function saveCurrentList(): void {
   });
 }
 
-async function run<T>(action: () => Promise<T>, done?: (result: T) => string | void): Promise<void> {
-  try {
-    const result = await action();
-    const message = done?.(result);
-    if (message) toast(message);
-  } catch (error) {
-    toast(errorText((error as { code?: string }).code ?? (error as Error).message), true);
-  }
-}
-
-function trackMenu(tracks: api.Track[], ids: number[]): ContextMenuItem[] {
-  const one = tracks.length === 1 ? tracks[0] : null;
-  const editable = app.playlists.filter((p) => p.role !== "VIEWER");
-  const items: ContextMenuItem[] = [];
-
-  if (one) {
-    items.push({
-      label: t("menu.starTrack"),
-      checked: one.starred,
-      onClick: () => run(() => api.starTrack(one.id, !one.starred), (updated) => app.player.update(updated)),
-    });
-  } else {
-    items.push({
-      label: t("menu.starAll"),
-      onClick: () =>
-        run(async () => {
-          for (const track of tracks.filter((x) => !x.starred)) app.player.update(await api.starTrack(track.id, true));
-        }),
-    });
-  }
-
-  items.push({
-    label: t("menu.addTo"),
-    children: [
-      ...editable.map((p) => ({
-        label: p.name,
-        onClick: () =>
-          run(() => api.addToPlaylist(p.id, tracks.map((x) => x.id)), () => {
-            void app.refreshPlaylists();
-            return t("playlists.added", { name: p.name });
-          }),
-      })),
-      ...(editable.length ? [{ type: "separator" as const }] : []),
-      { label: t("playlists.new"), onClick: () => desktopWindows.open("savePlaylist", { tracks, others: 0 }) },
-    ],
-  });
-
-  if (one) {
-    items.push(
-      { type: "separator" },
-      {
-        label: t("menu.radio"),
-        onClick: () => run(() => api.mixTracks(`track:${one.id.replaceAll("-", "")}`), (radio) => app.player.play(radio)),
-      },
-      { label: t("menu.album"), onClick: () => desktopWindows.open("library", { albumId: one.album.id }) },
-    );
-    const artist = one.artists.find((a) => a.role !== "FEATURED") ?? one.artists[0];
-    if (artist) items.push({ label: t("menu.artist"), onClick: () => desktopWindows.open("library", { artistId: artist.artistId, artistName: artist.name }) });
-    items.push({ label: t("menu.lyrics"), disabled: !one.hasLyrics, onClick: () => desktopWindows.open("lyrics", { trackId: one.id }) });
-    if (session.can("DOWNLOAD"))
-      items.push({
-        label: t("menu.download"),
-        onClick: () => {
-          const url = new URL(absolute(one.streamUrl));
-          url.searchParams.set("download", "true");
-          window.open(url.href, "_blank");
-        },
-      });
-  }
-
-  items.push({ type: "separator" }, { label: t("menu.remove"), onClick: () => app.player.removeFromList(ids) });
-  return items;
+/** The libraries the user sees, once loaded. */
+export function useLibraries(): api.Library[] | null {
+  return useSyncExternalStore(
+    (listener) => {
+      libraryListeners.add(listener);
+      return () => libraryListeners.delete(listener);
+    },
+    () => libraries,
+  );
 }

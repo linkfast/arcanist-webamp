@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { ArrowLeft, ListMusic, Save } from "lucide-react";
 import * as api from "../api/arcanist";
 import { app } from "../app";
@@ -16,6 +16,12 @@ export function PlaylistsWindow({ window: win }: { window: DesktopWindow }) {
   const { data, error, loading } = useLoad(() => app.refreshPlaylists(), [win.props]);
   const [open, setOpen] = useState<api.Playlist | null>(null);
   const [loadingId, setLoadingId] = useState<string | null>(null);
+
+  // Opened on a playlist (from the library's home): show it.
+  const wanted = win.props.playlistId as string | undefined;
+  useEffect(() => {
+    if (wanted && data) setOpen(data.find((p) => p.id === wanted) ?? null);
+  }, [wanted, data]);
 
   const load = async (playlist: api.Playlist) => {
     setLoadingId(playlist.id);

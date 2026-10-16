@@ -1,29 +1,82 @@
-import { useEffect, useRef, useState } from "react";
-import { ArrowLeft, Library, Play, Search } from "lucide-react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
+import { ChevronLeft, ChevronRight, DiscAlbum, Disc3, House, Library, ListPlus, MicVocal, Music, Play, Search, User } from "lucide-react";
 import * as api from "../api/arcanist";
-import { app } from "../app";
-import { Window, type DesktopWindow } from "../desktop/windows";
-import { t } from "../i18n";
-import { Button, Input, cn } from "../ui/ui";
-import { Artwork, ListActions, Loading, TrackList, useLoad } from "./common";
+import { app, useLibraries } from "../app";
+import { Window, desktopWindows, type DesktopWindow } from "../desktop/windows";
+import { t, type TextKey } from "../i18n";
+import { artistMenu, playMix, run } from "../menus";
+import { settings, useSettings } from "../settings";
+import { openMenu } from "../ui/menu";
+import { Button, Input, Select, cn } from "../ui/ui";
+import { AlbumGrid, ArtistRows, Artwork, ListActions, LoadMore, Loading, MixCard, TrackList, duration, usePages, useLoad } from "./common";
+
+type Section = "home" | "artists" | "albums" | "tracks";
 
 type View =
-  | { kind: "browse" }
+  | { kind: Section }
   | { kind: "search"; query: string }
-  | { kind: "album"; id: string }
+  | { kind: "album"; id: string; title?: string }
   | { kind: "artist"; id: string; name: string };
 
-function initialView(props: Record<string, unknown>): View {
-  if (typeof props.albumId === "string") return { kind: "album", id: props.albumId };
+const SECTIONS: { id: Section; label: TextKey; icon: ReactNode }[] = [
+  { id: "home", label: "library.home", icon: <House /> },
+  { id: "artists", label: "library.artists", icon: <MicVocal /> },
+  { id: "albums", label: "library.albums", icon: <DiscAlbum /> },
+  { id: "tracks", label: "library.tracks", icon: <Music /> },
+];
+
+const isSection = (view: View): view is { kind: Section } => SECTIONS.some((s) => s.id === view.kind);
+
+function viewFromProps(props: Record<string, unknown>): View | null {
+  if (typeof props.albumId === "string") return { kind: "album", id: props.albumId, title: props.albumTitle as string | undefined };
   if (typeof props.artistId === "string") return { kind: "artist", id: props.artistId, name: String(props.artistName ?? "") };
-  return { kind: "browse" };
+  return null;
 }
 
-/** Browsing the user's music: albums and artists, search, an album's songs, an artist's albums. */
+function same(a: View, b: View): boolean {
+  return JSON.stringify(a) === JSON.stringify(b);
+}
+
+function crumb(view: View): string {
+  switch (view.kind) {
+    case "search":
+      return t("library.searchFor", { query: view.query });
+    case "album":
+      return view.title || t("library.album");
+    case "artist":
+      return view.name || t("library.artist");
+    default:
+      return t(SECTIONS.find((s) => s.id === view.kind)!.label);
+  }
+}
+
+/**
+ * Browsing the user's music: home, artists, albums and songs (of all libraries or the chosen one), search, and the
+ * pages of albums and artists, with back and forward like a browser.
+ */
 export function LibraryWindow({ window: win }: { window: DesktopWindow }) {
-  const [history, setHistory] = useState<View[]>(() => [initialView(win.props)]);
-  const view = history[history.length - 1];
+  const [history, setHistory] = useState<{ stack: View[]; index: number }>(() => ({
+    stack: [viewFromProps(win.props) ?? { kind: "home" }],
+    index: 0,
+  }));
+  const view = history.stack[history.index];
   const [query, setQuery] = useState("");
+  const libraries = useLibraries();
+  useSettings();
+  const libraryId = app.libraryId;
+
+  useEffect(() => {
+    void app.loadLibraries().catch(() => {
+      // Without them there is no selector.
+    });
+  }, []);
+
+  const go = (next: View, replace = false) =>
+    setHistory(({ stack, index }) => {
+      if (same(stack[index], next)) return { stack, index };
+      const kept = stack.slice(0, replace ? index : index + 1);
+      return { stack: [...kept, next], index: kept.length };
+    });
 
   // Opened again from a menu ("Go to the album"): show that.
   const mounted = useRef(false);
@@ -32,98 +85,228 @@ export function LibraryWindow({ window: win }: { window: DesktopWindow }) {
       mounted.current = true;
       return;
     }
-    const next = initialView(win.props);
-    if (next.kind !== "browse") setHistory((h) => [...h, next]);
+    const next = viewFromProps(win.props);
+    if (next) go(next);
   }, [win.props]);
 
-  const go = (next: View) => setHistory((h) => [...h, next]);
-  const back = () => setHistory((h) => (h.length > 1 ? h.slice(0, -1) : h));
+  // Searching as the user types: one entry in the history per search.
+  useEffect(() => {
+    const q = query.trim();
+    if (q.length < 2) return;
+    const timer = setTimeout(() => go({ kind: "search", query: q }, view.kind === "search"), 350);
+    return () => clearTimeout(timer);
+  }, [query]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // The section a page was reached from stays highlighted, and starts the breadcrumb.
+  let section: Section | null = null;
+  let from = 0;
+  for (let i = history.index; i >= 0; i--) {
+    const v = history.stack[i];
+    if (isSection(v)) {
+      section = v.kind;
+      from = i;
+      break;
+    }
+    if (v.kind === "search") {
+      from = i;
+      break;
+    }
+  }
+  const crumbs = history.stack.slice(from, history.index + 1).map((v, i) => ({ label: crumb(v), index: from + i }));
+
+  const onAlbum = (album: { id: string; title?: string }) => go({ kind: "album", id: album.id, title: album.title });
+  const onArtist = (artist: { id: string; name: string }) => go({ kind: "artist", id: artist.id, name: artist.name });
+  const nav = { onAlbum, onArtist };
+  const chooser = app.canChooseLibrary ? libraries : null;
 
   return (
-    <Window window={win} title={t("library.title")} icon={<Library className="size-4" />} width={640} height={560}>
-      <div className="grid gap-4">
-        <form
-          className="flex gap-2"
-          onSubmit={(e) => {
-            e.preventDefault();
-            if (query.trim()) go({ kind: "search", query: query.trim() });
-          }}
-        >
-          {history.length > 1 && (
-            <Button variant="outline" size="icon" aria-label={t("common.back")} onClick={back}>
-              <ArrowLeft />
-            </Button>
-          )}
-          <Input value={query} placeholder={t("library.search")} onChange={(e) => setQuery(e.target.value)} />
-          <Button type="submit" variant="secondary" size="icon" aria-label={t("common.search")}>
-            <Search />
-          </Button>
-        </form>
-        {view.kind === "browse" && <Browse onAlbum={(id) => go({ kind: "album", id })} onArtist={(id, name) => go({ kind: "artist", id, name })} />}
-        {view.kind === "search" && (
-          <SearchResults query={view.query} onAlbum={(id) => go({ kind: "album", id })} onArtist={(id, name) => go({ kind: "artist", id, name })} />
-        )}
-        {view.kind === "album" && <AlbumView id={view.id} onArtist={(id, name) => go({ kind: "artist", id, name })} />}
-        {view.kind === "artist" && <ArtistView id={view.id} name={view.name} onAlbum={(id) => go({ kind: "album", id })} />}
+    <Window window={win} title={t("library.title")} icon={<Library className="size-4" />} width={880} height={620} bodyClassName="p-0 overflow-hidden">
+      <div className="@container size-full">
+        <div className="flex size-full flex-col @[620px]:flex-row">
+          <aside className="flex shrink-0 items-center gap-1 overflow-x-auto border-b p-1.5 @[620px]:w-44 @[620px]:flex-col @[620px]:items-stretch @[620px]:border-r @[620px]:border-b-0 @[620px]:p-2">
+            {SECTIONS.map((s) => (
+              <button
+                key={s.id}
+                className={cn(
+                  "flex shrink-0 items-center gap-2 rounded-md px-2.5 py-1.5 text-sm outline-none hover:bg-accent/60 focus-visible:ring-2 focus-visible:ring-[var(--ring)] [&_svg]:size-4 [&_svg]:shrink-0",
+                  section === s.id ? "bg-[var(--primary)]/12 font-medium text-[var(--foreground)] [&_svg]:text-[var(--primary)]" : "text-muted-foreground",
+                )}
+                aria-current={section === s.id ? "page" : undefined}
+                onClick={() => go({ kind: s.id })}
+              >
+                {s.icon}
+                {t(s.label)}
+              </button>
+            ))}
+            {chooser && (
+              <label className="ml-auto grid shrink-0 gap-1 text-xs text-muted-foreground @[620px]:mt-auto @[620px]:ml-0">
+                <span className="hidden @[620px]:block">{t("library.chooseLibrary")}</span>
+                <Select
+                  className="h-8 max-w-48 text-xs"
+                  aria-label={t("library.chooseLibrary")}
+                  value={libraryId ?? ""}
+                  onChange={(e) => settings.set({ libraryId: e.target.value || null })}
+                >
+                  <option value="">{t("library.allLibraries")}</option>
+                  {chooser.map((l) => (
+                    <option key={l.id} value={l.id}>
+                      {l.name}
+                    </option>
+                  ))}
+                </Select>
+              </label>
+            )}
+          </aside>
+          <div className="flex min-h-0 min-w-0 flex-1 flex-col">
+            <div className="flex items-center gap-1 border-b px-2 py-1.5">
+              <Button
+                variant="ghost"
+                size="icon-sm"
+                aria-label={t("common.back")}
+                title={t("common.back")}
+                disabled={history.index === 0}
+                onClick={() => setHistory((h) => ({ ...h, index: Math.max(0, h.index - 1) }))}
+              >
+                <ChevronLeft />
+              </Button>
+              <Button
+                variant="ghost"
+                size="icon-sm"
+                aria-label={t("library.forward")}
+                title={t("library.forward")}
+                disabled={history.index >= history.stack.length - 1}
+                onClick={() => setHistory((h) => ({ ...h, index: Math.min(h.stack.length - 1, h.index + 1) }))}
+              >
+                <ChevronRight />
+              </Button>
+              <nav aria-label={t("library.breadcrumb")} className="flex min-w-0 flex-1 items-center gap-1 px-1 text-sm">
+                {crumbs.map((c, i) => (
+                  <span key={c.index} className={cn("flex items-center gap-1", i === crumbs.length - 1 ? "min-w-0" : "min-w-0 shrink")}>
+                    {i > 0 && <ChevronRight className="size-3.5 shrink-0 text-muted-foreground" />}
+                    {i === crumbs.length - 1 ? (
+                      <span className="truncate font-semibold">{c.label}</span>
+                    ) : (
+                      <button
+                        className="truncate text-muted-foreground hover:text-[var(--foreground)] hover:underline"
+                        onClick={() => setHistory((h) => ({ ...h, index: c.index }))}
+                      >
+                        {c.label}
+                      </button>
+                    )}
+                  </span>
+                ))}
+              </nav>
+              <form
+                className="relative w-40 shrink-0 @[620px]:w-56"
+                role="search"
+                onSubmit={(e) => {
+                  e.preventDefault();
+                  if (query.trim()) go({ kind: "search", query: query.trim() }, view.kind === "search");
+                }}
+              >
+                <Search className="pointer-events-none absolute top-1/2 left-2.5 size-4 -translate-y-1/2 text-muted-foreground" />
+                <Input
+                  className="h-8 pl-8"
+                  type="search"
+                  value={query}
+                  placeholder={t("library.search")}
+                  aria-label={t("common.search")}
+                  onChange={(e) => setQuery(e.target.value)}
+                />
+              </form>
+            </div>
+            <div key={`${history.index}-${libraryId}`} className="min-h-0 flex-1 overflow-auto p-4">
+              {view.kind === "home" && <HomeView {...nav} />}
+              {view.kind === "artists" && <ArtistsView libraryId={libraryId} {...nav} />}
+              {view.kind === "albums" && <AlbumsView libraryId={libraryId} {...nav} />}
+              {view.kind === "tracks" && <TracksView libraryId={libraryId} />}
+              {view.kind === "search" && <SearchView query={view.query} libraryId={libraryId} {...nav} />}
+              {view.kind === "album" && <AlbumView id={view.id} {...nav} />}
+              {view.kind === "artist" && <ArtistView id={view.id} name={view.name} libraryId={libraryId} {...nav} />}
+            </div>
+          </div>
+        </div>
       </div>
     </Window>
   );
 }
 
-function Browse({ onAlbum, onArtist }: { onAlbum: (id: string) => void; onArtist: (id: string, name: string) => void }) {
-  const [tab, setTab] = useState<"albums" | "artists">("albums");
+interface Nav {
+  onAlbum: (album: { id: string; title?: string }) => void;
+  onArtist: (artist: { id: string; name: string }) => void;
+}
+
+function Heading({ children, actions }: { children: ReactNode; actions?: ReactNode }) {
   return (
-    <div className="grid gap-3">
-      <div className="inline-flex w-fit rounded-lg bg-muted p-1">
-        {(["albums", "artists"] as const).map((key) => (
+    <div className="flex flex-wrap items-center justify-between gap-2">
+      <h3 className="text-xs font-semibold tracking-wide text-muted-foreground uppercase">{children}</h3>
+      {actions}
+    </div>
+  );
+}
+
+const HOME_TITLES: Record<api.HomeSectionKind, TextKey> = {
+  RECENTLY_PLAYED: "home.RECENTLY_PLAYED",
+  MIXES: "home.MIXES",
+  RECENTLY_ADDED: "home.RECENTLY_ADDED",
+  MOST_PLAYED: "home.MOST_PLAYED",
+  STARRED: "home.STARRED",
+  REDISCOVER: "home.REDISCOVER",
+  NEVER_PLAYED: "home.NEVER_PLAYED",
+  PLAYLISTS: "home.PLAYLISTS",
+};
+
+function HomeView({ onAlbum }: Nav) {
+  const { data, error, loading } = useLoad(() => api.home(), []);
+  if (!data) return <Loading error={error} loading={loading} />;
+  return (
+    <div className="grid gap-6">
+      {app.libraryId && <p className="text-xs text-muted-foreground">{t("library.homeAll")}</p>}
+      {data.length === 0 && <p className="py-6 text-center text-sm text-muted-foreground">{t("library.homeEmpty")}</p>}
+      {data.map((section) => (
+        <section key={section.kind} className="grid gap-2">
+          <Heading actions={section.tracks.length > 0 && <ListActions tracks={section.tracks} />}>{t(HOME_TITLES[section.kind])}</Heading>
+          {section.albums.length > 0 && <AlbumGrid albums={section.albums} onAlbum={onAlbum} row />}
+          {section.mixes.length > 0 && (
+            <ul className="flex gap-2 overflow-x-auto pb-2">
+              {section.mixes.map((mix) => (
+                <li key={mix.id} className="w-40 shrink-0">
+                  <MixCard mix={mix} />
+                </li>
+              ))}
+            </ul>
+          )}
+          {section.tracks.length > 0 && <TrackList tracks={section.tracks} />}
+          {section.playlists.length > 0 && <PlaylistRow playlists={section.playlists} />}
+        </section>
+      ))}
+    </div>
+  );
+}
+
+function PlaylistRow({ playlists }: { playlists: api.Playlist[] }) {
+  const tracks = (p: api.Playlist) => () => api.playlistTracks(p.id);
+  return (
+    <ul className="flex gap-2 overflow-x-auto pb-2">
+      {playlists.map((p) => (
+        <li key={p.id} className="w-36 shrink-0">
           <button
-            key={key}
-            className={cn("rounded-md px-3 py-1 text-sm", tab === key ? "bg-[var(--background)] shadow-sm" : "text-muted-foreground")}
-            onClick={() => setTab(key)}
+            className="grid w-full gap-1 rounded-lg p-1.5 text-left hover:bg-accent/50"
+            onClick={() => desktopWindows.open("playlists", { playlistId: p.id })}
+            onContextMenu={(e) =>
+              openMenu(e, [
+                { label: t("common.play"), icon: <Play />, onClick: () => run(tracks(p), (list) => app.player.play(list)) },
+                { label: t("common.add"), icon: <ListPlus />, onClick: () => run(tracks(p), (list) => app.player.append(list)) },
+                { type: "separator" },
+                { label: t("menu.openPlaylist"), onClick: () => desktopWindows.open("playlists", { playlistId: p.id }) },
+              ])
+            }
           >
-            {t(key === "albums" ? "library.albums" : "library.artists")}
-          </button>
-        ))}
-      </div>
-      {tab === "albums" ? <AlbumGrid onAlbum={onAlbum} /> : <ArtistList onArtist={onArtist} />}
-    </div>
-  );
-}
-
-function AlbumGrid({ onAlbum, artistId }: { onAlbum: (id: string) => void; artistId?: string }) {
-  const [pages, setPages] = useState<api.Album[]>([]);
-  const [cursor, setCursor] = useState<string | null>(null);
-  const [after, setAfter] = useState<string | null>(null);
-  const { error, loading } = useLoad(async () => {
-    const page = await api.albums(null, after, artistId);
-    setPages((p) => (after ? [...p, ...page.items] : page.items));
-    setCursor(page.nextCursor);
-  }, [after, artistId]);
-  return (
-    <div className="grid gap-3">
-      <Albums albums={pages} onAlbum={onAlbum} />
-      <Loading error={error} loading={loading} />
-      {cursor && !loading && (
-        <Button variant="outline" size="sm" className="justify-self-center" onClick={() => setAfter(cursor)}>
-          {t("common.more")}
-        </Button>
-      )}
-    </div>
-  );
-}
-
-function Albums({ albums, onAlbum }: { albums: api.Album[]; onAlbum: (id: string) => void }) {
-  return (
-    <ul className="grid grid-cols-[repeat(auto-fill,minmax(120px,1fr))] gap-3">
-      {albums.map((album) => (
-        <li key={album.id}>
-          <button className="grid w-full gap-1 rounded-lg p-1 text-left hover:bg-accent/50" onClick={() => onAlbum(album.id)}>
-            <Artwork id={album.artworkId} size={112} className="w-full" />
-            <span className="truncate text-sm font-medium">{album.title}</span>
-            <span className="truncate text-xs text-muted-foreground">
-              {album.artist.name}
-              {album.year ? ` · ${album.year}` : ""}
+            <span className="block aspect-square w-full overflow-hidden rounded-md bg-muted">
+              <Artwork id={p.artworkIds[0]} size={256} className="size-full!" />
             </span>
+            <span className="truncate text-sm font-medium">{p.name}</span>
+            <span className="truncate text-xs text-muted-foreground">{t("playlists.tracks", { count: p.trackCount })}</span>
           </button>
         </li>
       ))}
@@ -131,114 +314,180 @@ function Albums({ albums, onAlbum }: { albums: api.Album[]; onAlbum: (id: string
   );
 }
 
-function ArtistList({ onArtist }: { onArtist: (id: string, name: string) => void }) {
-  const [list, setList] = useState<api.Artist[]>([]);
-  const [cursor, setCursor] = useState<string | null>(null);
-  const [after, setAfter] = useState<string | null>(null);
-  const { error, loading } = useLoad(async () => {
-    const page = await api.artists(null, after);
-    setList((l) => (after ? [...l, ...page.items] : page.items));
-    setCursor(page.nextCursor);
-  }, [after]);
+function ArtistsView({ libraryId, onArtist }: Nav & { libraryId: string | null }) {
+  const pages = usePages((after) => api.artists(null, after, libraryId), [libraryId]);
   return (
-    <div className="grid gap-2">
-      <ul className="grid gap-0.5">
-        {list.map((artist) => (
-          <li key={artist.id}>
-            <button className="w-full rounded-md px-2 py-1.5 text-left text-sm hover:bg-accent/50" onClick={() => onArtist(artist.id, artist.name)}>
-              {artist.name}
-            </button>
-          </li>
-        ))}
-      </ul>
-      <Loading error={error} loading={loading} />
-      {cursor && !loading && (
-        <Button variant="outline" size="sm" className="justify-self-center" onClick={() => setAfter(cursor)}>
-          {t("common.more")}
-        </Button>
+    <div className="grid gap-3">
+      {pages.total != null && <Heading>{t("library.countArtists", { count: pages.total })}</Heading>}
+      {(pages.items.length > 0 || (!pages.loading && !pages.error)) && <ArtistRows artists={pages.items} onArtist={onArtist} />}
+      <Loading error={pages.error} loading={pages.loading} />
+      <LoadMore onMore={pages.more} loading={pages.loading} />
+    </div>
+  );
+}
+
+function AlbumsView({ libraryId, onAlbum }: Nav & { libraryId: string | null }) {
+  const pages = usePages((after) => api.albums(null, after, null, libraryId), [libraryId]);
+  return (
+    <div className="grid gap-3">
+      {pages.total != null && <Heading>{t("library.countAlbums", { count: pages.total })}</Heading>}
+      {(pages.items.length > 0 || (!pages.loading && !pages.error)) && <AlbumGrid albums={pages.items} onAlbum={onAlbum} />}
+      <Loading error={pages.error} loading={pages.loading} />
+      <LoadMore onMore={pages.more} loading={pages.loading} />
+    </div>
+  );
+}
+
+function TracksView({ libraryId }: { libraryId: string | null }) {
+  const pages = usePages((after) => api.tracks(null, after, libraryId), [libraryId]);
+  return (
+    <div className="grid gap-3">
+      {pages.total != null && (
+        <Heading actions={<ListActions tracks={pages.items} playLabel={t("library.playLoaded")} />}>
+          {t("library.countTracks", { count: pages.total })}
+        </Heading>
+      )}
+      {(pages.items.length > 0 || (!pages.loading && !pages.error)) && <TrackList tracks={pages.items} />}
+      <Loading error={pages.error} loading={pages.loading} />
+      <LoadMore onMore={pages.more} loading={pages.loading} />
+    </div>
+  );
+}
+
+function SearchView({ query, libraryId, onAlbum, onArtist }: Nav & { query: string; libraryId: string | null }) {
+  const { data, error, loading } = useLoad(() => api.search(query, libraryId), [query, libraryId]);
+  if (!data) return <Loading error={error} loading={loading} />;
+  const nothing = !data.artists.length && !data.albums.length && !data.tracks.length && !data.playlists.length;
+  if (nothing) return <p className="py-6 text-center text-sm text-muted-foreground">{t("library.noResults", { query })}</p>;
+  return (
+    <div className="grid gap-6">
+      {data.tracks.length > 0 && (
+        <section className="grid gap-2">
+          <Heading actions={<ListActions tracks={data.tracks} />}>{t("library.tracks")}</Heading>
+          <TrackList tracks={data.tracks} />
+        </section>
+      )}
+      {data.artists.length > 0 && (
+        <section className="grid gap-2">
+          <Heading>{t("library.artists")}</Heading>
+          <ArtistRows artists={data.artists} onArtist={onArtist} />
+        </section>
+      )}
+      {data.albums.length > 0 && (
+        <section className="grid gap-2">
+          <Heading>{t("library.albums")}</Heading>
+          <AlbumGrid albums={data.albums} onAlbum={onAlbum} />
+        </section>
+      )}
+      {data.playlists.length > 0 && (
+        <section className="grid gap-2">
+          <Heading>{t("library.playlists")}</Heading>
+          <PlaylistRow playlists={data.playlists} />
+        </section>
       )}
     </div>
   );
 }
 
-function SearchResults({ query, onAlbum, onArtist }: { query: string; onAlbum: (id: string) => void; onArtist: (id: string, name: string) => void }) {
-  const { data, error, loading } = useLoad(() => api.search(query), [query]);
+function AlbumView({ id, onArtist }: Nav & { id: string }) {
+  const { data, error, loading } = useLoad(() => api.albumWithTracks(id), [id]);
   if (!data) return <Loading error={error} loading={loading} />;
+  const { album, tracks } = data;
+  const discs = new Set(tracks.map((x) => x.discNumber ?? 1)).size;
   return (
-    <div className="grid gap-5">
-      {data.artists.length > 0 && (
-        <section className="grid gap-2">
-          <h3 className="text-xs font-medium uppercase text-muted-foreground">{t("library.artists")}</h3>
+    <div className="grid gap-4">
+      <div className="flex flex-wrap items-end gap-4">
+        <Artwork id={album.artworkId} size={148} className="shadow-lg" />
+        <div className="grid min-w-0 flex-1 gap-1.5">
+          <span className="text-xs font-medium tracking-wide text-muted-foreground uppercase">{t("library.album")}</span>
+          <h3 className="text-xl leading-tight font-semibold">{album.title}</h3>
+          <p className="text-sm text-muted-foreground">
+            <button className="font-medium text-[var(--foreground)] hover:underline" onClick={() => onArtist(album.artist)}>
+              {album.artist.name}
+            </button>
+            {album.year ? ` · ${album.year}` : ""}
+            {` · ${t("playlists.tracks", { count: tracks.length })}`}
+            {album.durationMs ? ` · ${duration(album.durationMs)}` : ""}
+            {discs > 1 ? ` · ${t("library.discs", { count: discs })}` : ""}
+          </p>
+          <ListActions tracks={tracks} playLabel={t("library.playAlbum")} />
+        </div>
+      </div>
+      <TrackList tracks={tracks} numbered />
+    </div>
+  );
+}
+
+function ArtistView({ id, name, libraryId, onAlbum, onArtist }: Nav & { id: string; name: string; libraryId: string | null }) {
+  const { data, error, loading } = useLoad(() => api.artistOverview(id, libraryId), [id, libraryId]);
+  const [busy, setBusy] = useState(false);
+  const everything = async (append: boolean) => {
+    setBusy(true);
+    await run(
+      () => api.artistTracks(id, libraryId),
+      (list) => (append ? app.player.append(list) : app.player.play(list)),
+    );
+    setBusy(false);
+  };
+  if (!data) return <Loading error={error} loading={loading} />;
+  const top = libraryId ? data.topTracks.filter((x) => x.libraryIds?.includes(libraryId) ?? true) : data.topTracks;
+  return (
+    <div className="grid gap-6">
+      <div className="flex flex-wrap items-end gap-4">
+        {data.artworkId ? (
+          <Artwork id={data.artworkId} size={128} className="rounded-full shadow-lg" />
+        ) : (
+          <span className="grid size-32 place-items-center rounded-full bg-muted text-muted-foreground">
+            <User className="size-12" />
+          </span>
+        )}
+        <div className="grid min-w-0 flex-1 gap-1.5">
+          <span className="text-xs font-medium tracking-wide text-muted-foreground uppercase">{t("library.artist")}</span>
+          <h3 className="text-xl leading-tight font-semibold">{data.artist.name || name}</h3>
+          {data.playCount > 0 && <p className="text-sm text-muted-foreground">{t("library.plays", { count: data.playCount })}</p>}
           <div className="flex flex-wrap gap-2">
-            {data.artists.map((a) => (
-              <Button key={a.id} size="sm" variant="outline" onClick={() => onArtist(a.id, a.name)}>
+            <Button size="sm" disabled={busy} onClick={() => everything(false)}>
+              <Play /> {t("library.playArtist")}
+            </Button>
+            <Button size="sm" variant="outline" disabled={busy} onClick={() => everything(true)}>
+              <ListPlus /> {t("common.add")}
+            </Button>
+            <Button size="sm" variant="outline" onClick={() => playMix(data.mix)}>
+              <Disc3 /> {t("menu.artistMix")}
+            </Button>
+          </div>
+        </div>
+      </div>
+      {top.length > 0 && (
+        <section className="grid gap-2">
+          <Heading>{t("library.popular")}</Heading>
+          <TrackList tracks={top} />
+        </section>
+      )}
+      {data.albums.length > 0 && (
+        <section className="grid gap-2">
+          <Heading>{t("library.albums")}</Heading>
+          <AlbumGrid albums={data.albums} onAlbum={onAlbum} />
+        </section>
+      )}
+      {data.appearsOn.length > 0 && (
+        <section className="grid gap-2">
+          <Heading>{t("library.appearsOn")}</Heading>
+          <AlbumGrid albums={data.appearsOn} onAlbum={onAlbum} />
+        </section>
+      )}
+      {data.relatedArtists.length > 0 && (
+        <section className="grid gap-2">
+          <Heading>{t("library.related")}</Heading>
+          <div className="flex flex-wrap gap-2">
+            {data.relatedArtists.map((a) => (
+              <Button key={a.id} size="sm" variant="outline" onClick={() => onArtist(a)} onContextMenu={(e) => openMenu(e, artistMenu(a, () => onArtist(a)))}>
                 {a.name}
               </Button>
             ))}
           </div>
         </section>
       )}
-      {data.albums.length > 0 && (
-        <section className="grid gap-2">
-          <h3 className="text-xs font-medium uppercase text-muted-foreground">{t("library.albums")}</h3>
-          <Albums albums={data.albums} onAlbum={onAlbum} />
-        </section>
-      )}
-      <section className="grid gap-2">
-        <h3 className="text-xs font-medium uppercase text-muted-foreground">{t("library.tracks")}</h3>
-        <TrackList tracks={data.tracks} />
-      </section>
-    </div>
-  );
-}
-
-function AlbumView({ id, onArtist }: { id: string; onArtist: (id: string, name: string) => void }) {
-  const { data, error, loading } = useLoad(() => api.albumTracks(id), [id]);
-  if (!data) return <Loading error={error} loading={loading} />;
-  const first = data[0];
-  return (
-    <div className="grid gap-4">
-      {first && (
-        <div className="flex gap-4">
-          <Artwork id={first.artworkId} size={128} />
-          <div className="grid content-end gap-1">
-            <h3 className="text-lg font-semibold">{first.album.title}</h3>
-            {first.artists[0] && (
-              <button className="w-fit text-sm text-muted-foreground hover:underline" onClick={() => onArtist(first.artists[0].artistId, first.artists[0].name)}>
-                {first.artists[0].name}
-              </button>
-            )}
-            <ListActions tracks={data} playLabel={t("library.playAlbum")} />
-          </div>
-        </div>
-      )}
-      <TrackList tracks={data} numbered />
-    </div>
-  );
-}
-
-function ArtistView({ id, name, onAlbum }: { id: string; name: string; onAlbum: (id: string) => void }) {
-  const [busy, setBusy] = useState(false);
-  return (
-    <div className="grid gap-3">
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <h3 className="text-lg font-semibold">{t("library.albumsOf", { name })}</h3>
-        <Button
-          size="sm"
-          disabled={busy}
-          onClick={async () => {
-            setBusy(true);
-            try {
-              app.player.play(await api.artistTracks(id));
-            } finally {
-              setBusy(false);
-            }
-          }}
-        >
-          <Play /> {t("library.playArtist")}
-        </Button>
-      </div>
-      <AlbumGrid onAlbum={onAlbum} artistId={id} />
     </div>
   );
 }

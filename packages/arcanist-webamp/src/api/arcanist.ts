@@ -15,6 +15,8 @@ export interface Track {
   streamUrl: string;
   starred: boolean;
   rating: number | null;
+  /** The libraries with a copy the user can play. */
+  libraryIds: string[];
 }
 
 export interface Album {
@@ -23,6 +25,7 @@ export interface Album {
   year: number | null;
   artworkId: string | null;
   trackCount: number;
+  durationMs?: number;
   artist: { id: string; name: string };
 }
 
@@ -47,7 +50,44 @@ export interface Mix {
   id: string;
   kind: "ARTIST" | "GENRE" | "DECADE" | "FAVORITES" | "DISCOVERY" | "TRACK";
   subject: string | null;
+  subjectId: string | null;
   artworkIds: string[];
+}
+
+export type HomeSectionKind =
+  | "RECENTLY_PLAYED"
+  | "MIXES"
+  | "RECENTLY_ADDED"
+  | "MOST_PLAYED"
+  | "STARRED"
+  | "REDISCOVER"
+  | "NEVER_PLAYED"
+  | "PLAYLISTS";
+
+export interface HomeSection {
+  kind: HomeSectionKind;
+  albums: Album[];
+  mixes: Mix[];
+  tracks: Track[];
+  playlists: Playlist[];
+}
+
+export interface ArtistOverview {
+  artist: Artist;
+  topTracks: Track[];
+  albums: Album[];
+  appearsOn: Album[];
+  relatedArtists: Artist[];
+  mix: Mix;
+  playCount: number;
+  artworkId: string | null;
+}
+
+export interface SearchResults {
+  artists: Artist[];
+  albums: Album[];
+  tracks: Track[];
+  playlists: Playlist[];
 }
 
 export interface Library {
@@ -78,30 +118,41 @@ export interface Lyrics {
 }
 
 const TRACK = `id title album { id title } artists { artistId name role } discNumber trackNumber durationMs artworkId
-  hasLyrics streamUrl starred rating`;
+  hasLyrics streamUrl starred rating libraryIds`;
 const ALBUM = `id title year artworkId trackCount artist { id name }`;
 const PLAYLIST = `id name description isPublic role trackCount durationMs artworkIds owner { id name }`;
+const MIX = `id kind subject subjectId artworkIds`;
 
 export async function serverInfo(): Promise<ServerInfo> {
   return rest<ServerInfo>("GET", "/rest/v1/server-info");
 }
 
-export async function albums(search: string | null, after: string | null, artistId?: string): Promise<Page<Album>> {
+export async function albums(search: string | null, after: string | null, artistId?: string | null, libraryId?: string | null): Promise<Page<Album>> {
   return (
     await gql<{ albums: Page<Album> }>(
-      `query($s: String, $a: String, $artist: ID) { albums(search: $s, after: $a, first: 60, artistId: $artist) { items { ${ALBUM} } nextCursor totalCount } }`,
-      { s: search || null, a: after, artist: artistId ?? null },
+      `query($s: String, $a: String, $artist: ID, $l: ID) { albums(search: $s, after: $a, first: 60, artistId: $artist, libraryId: $l) { items { ${ALBUM} } nextCursor totalCount } }`,
+      { s: search || null, a: after, artist: artistId ?? null, l: libraryId ?? null },
     )
   ).albums;
 }
 
-export async function artists(search: string | null, after: string | null): Promise<Page<Artist>> {
+export async function artists(search: string | null, after: string | null, libraryId?: string | null): Promise<Page<Artist>> {
   return (
     await gql<{ artists: Page<Artist> }>(
-      `query($s: String, $a: String) { artists(search: $s, after: $a, first: 100) { items { id name } nextCursor totalCount } }`,
-      { s: search || null, a: after },
+      `query($s: String, $a: String, $l: ID) { artists(search: $s, after: $a, first: 100, libraryId: $l) { items { id name } nextCursor totalCount } }`,
+      { s: search || null, a: after, l: libraryId ?? null },
     )
   ).artists;
+}
+
+/** A page of songs by title, optionally of a library. */
+export async function tracks(search: string | null, after: string | null, libraryId?: string | null): Promise<Page<Track>> {
+  return (
+    await gql<{ tracks: Page<Track> }>(
+      `query($s: String, $a: String, $l: ID) { tracks(search: $s, after: $a, first: 100, libraryId: $l) { items { ${TRACK} } nextCursor totalCount } }`,
+      { s: search || null, a: after, l: libraryId ?? null },
+    )
+  ).tracks;
 }
 
 export async function albumTracks(albumId: string): Promise<Track[]> {
@@ -110,14 +161,23 @@ export async function albumTracks(albumId: string): Promise<Track[]> {
   ).tracks.items;
 }
 
-export async function artistTracks(artistId: string): Promise<Track[]> {
+/** An album and its songs, in one request. */
+export async function albumWithTracks(albumId: string): Promise<{ album: Album; tracks: Track[] }> {
+  const result = await gql<{ album: Album; tracks: Page<Track> }>(
+    `query($id: ID!) { album(id: $id) { ${ALBUM} durationMs } tracks(albumId: $id) { items { ${TRACK} } } }`,
+    { id: albumId },
+  );
+  return { album: result.album, tracks: result.tracks.items };
+}
+
+export async function artistTracks(artistId: string, libraryId?: string | null): Promise<Track[]> {
   const result: Track[] = [];
   let after: string | null = null;
   do {
     const page: Page<Track> = (
       await gql<{ tracks: Page<Track> }>(
-        `query($id: ID, $a: String) { tracks(artistId: $id, after: $a, first: 500) { items { ${TRACK} } nextCursor } }`,
-        { id: artistId, a: after },
+        `query($id: ID, $a: String, $l: ID) { tracks(artistId: $id, after: $a, first: 500, libraryId: $l) { items { ${TRACK} } nextCursor } }`,
+        { id: artistId, a: after, l: libraryId ?? null },
       )
     ).tracks;
     result.push(...page.items);
@@ -126,13 +186,60 @@ export async function artistTracks(artistId: string): Promise<Track[]> {
   return result;
 }
 
-export async function search(query: string): Promise<{ artists: Artist[]; albums: Album[]; tracks: Track[]; playlists: Playlist[] }> {
+/**
+ * Artists, albums, songs and playlists matching a query. `search` has no library filter: within a library, the
+ * lists' own search (the same index) answers, in one request.
+ */
+export async function search(query: string, libraryId?: string | null): Promise<SearchResults> {
+  if (libraryId) {
+    const result = await gql<{ artists: Page<Artist>; albums: Page<Album>; tracks: Page<Track> }>(
+      `query($q: String, $l: ID) {
+        artists(search: $q, first: 20, libraryId: $l) { items { id name } }
+        albums(search: $q, first: 20, libraryId: $l) { items { ${ALBUM} } }
+        tracks(search: $q, first: 50, libraryId: $l) { items { ${TRACK} } }
+      }`,
+      { q: query, l: libraryId },
+    );
+    return { artists: result.artists.items, albums: result.albums.items, tracks: result.tracks.items, playlists: [] };
+  }
   return (
-    await gql<{ search: { artists: Artist[]; albums: Album[]; tracks: Track[]; playlists: Playlist[] } }>(
+    await gql<{ search: SearchResults }>(
       `query($q: String!) { search(query: $q, first: 20) { artists { id name } albums { ${ALBUM} } tracks { ${TRACK} } playlists { ${PLAYLIST} } } }`,
       { q: query },
     )
   ).search;
+}
+
+/** The user's home: recently played and added, mixes, most played, StarTracks, to rediscover, playlists. */
+export async function home(): Promise<HomeSection[]> {
+  return (
+    await gql<{ home: { sections: HomeSection[] } }>(
+      `query { home { sections { kind albums { ${ALBUM} } mixes { ${MIX} } tracks { ${TRACK} } playlists { ${PLAYLIST} } } } }`,
+    )
+  ).home.sections;
+}
+
+/** An artist's page; within a library, its albums there instead (the overview has no library filter). */
+export async function artistOverview(id: string, libraryId?: string | null): Promise<ArtistOverview> {
+  const result = await gql<{ artistOverview: ArtistOverview; inLibrary?: Page<Album> }>(
+    `query($id: ID!, $l: ID, $within: Boolean!) {
+      artistOverview(id: $id) {
+        artist { id name } topTracks { ${TRACK} } albums { ${ALBUM} } appearsOn { ${ALBUM} } relatedArtists { id name }
+        mix { ${MIX} } playCount artworkId
+      }
+      inLibrary: albums(artistId: $id, libraryId: $l, first: 200) @include(if: $within) { items { ${ALBUM} } }
+    }`,
+    { id, l: libraryId ?? null, within: !!libraryId },
+  );
+  const overview = result.artistOverview;
+  if (!result.inLibrary) return overview;
+  const own = new Set(overview.albums.map((a) => a.id));
+  const albums = result.inLibrary.items;
+  return {
+    ...overview,
+    albums: albums.filter((a) => own.has(a.id) || a.artist.id === id),
+    appearsOn: albums.filter((a) => !own.has(a.id) && a.artist.id !== id),
+  };
 }
 
 export async function playlists(): Promise<Playlist[]> {
@@ -199,7 +306,7 @@ export async function starTracks(): Promise<Track[]> {
 }
 
 export async function mixes(): Promise<Mix[]> {
-  return (await gql<{ mixes: Mix[] }>(`query { mixes { id kind subject artworkIds } }`)).mixes;
+  return (await gql<{ mixes: Mix[] }>(`query { mixes { ${MIX} } }`)).mixes;
 }
 
 export async function mixTracks(id: string): Promise<Track[]> {

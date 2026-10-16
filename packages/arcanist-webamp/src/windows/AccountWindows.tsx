@@ -1,8 +1,8 @@
 import { useRef, useState } from "react";
-import { CircleUser, ExternalLink, LogOut, Upload } from "lucide-react";
+import { CircleUser, LogOut, Settings2, Upload, UserCog } from "lucide-react";
 import * as api from "../api/arcanist";
 import { logout, refresh, session } from "../api/client";
-import { app } from "../app";
+import { app, managesServer, openPanel } from "../app";
 import { Window, type DesktopWindow } from "../desktop/windows";
 import { errorText, t } from "../i18n";
 import { Button, Select, Spinner, cn } from "../ui/ui";
@@ -131,7 +131,7 @@ export function UploadWindow({ window: win }: { window: DesktopWindow }) {
   );
 }
 
-/** Who is signed in, signing out, the panel, and where the source code is (AGPL §13). */
+/** Who is signed in, their account and the panel (in Arcanist's panel), signing out, and the source code (AGPL §13). */
 export function AccountWindow({ window: win }: { window: DesktopWindow }) {
   const user = session.user;
   const server = app.server;
@@ -141,9 +141,12 @@ export function AccountWindow({ window: win }: { window: DesktopWindow }) {
         <p>{t("account.signedIn", { name: user?.displayName || user?.userName || "" })}</p>
         {server && <p className="text-muted-foreground">{t("login.server", { name: server.name, version: server.version })}</p>}
         <div className="flex flex-wrap gap-2">
-          {user?.role === "ADMIN" && (
-            <Button variant="outline" size="sm" onClick={() => window.open("/admin/", "_blank")}>
-              <ExternalLink /> {t("account.panel")}
+          <Button variant="outline" size="sm" onClick={() => openPanel("account")}>
+            <UserCog /> {t("account.settings")}
+          </Button>
+          {managesServer() && (
+            <Button variant="outline" size="sm" onClick={() => openPanel()}>
+              <Settings2 /> {t("account.panel")}
             </Button>
           )}
           <Button

@@ -14,7 +14,8 @@ export type WindowKind =
   | "mixes"
   | "upload"
   | "lyrics"
-  | "account";
+  | "account"
+  | "personalize";
 
 export interface DesktopWindow {
   id: string;
@@ -24,6 +25,9 @@ export interface DesktopWindow {
   y: number;
   z: number;
 }
+
+/** The taskbar at the bottom of the desktop (as --taskbar-height in styles.css). */
+export const TASKBAR_HEIGHT = 44;
 
 /** Above Webamp at first (its windows and menus start at 10 and 11); then they share one stacking order. */
 const BASE_Z = 100;
@@ -46,7 +50,7 @@ export const desktopWindows = {
     } else {
       const offset = (opened++ % 8) * 28;
       const x = Math.max(16, Math.min(window.innerWidth - 560, 120 + offset));
-      const y = Math.max(16, Math.min(window.innerHeight - 480, 60 + offset));
+      const y = Math.max(16, Math.min(window.innerHeight - TASKBAR_HEIGHT - 480, 60 + offset));
       windows = [...windows, { id: `${kind}-${Date.now()}`, kind, props, x, y, z: ++topZ }];
     }
     emit();
@@ -79,6 +83,10 @@ export const desktopWindows = {
   top(): number {
     return topZ;
   },
+  /** The window in front, if any is open. */
+  front(): DesktopWindow | null {
+    return windows.reduce<DesktopWindow | null>((best, w) => (!best || w.z > best.z ? w : best), null);
+  },
 };
 
 export function useDesktopWindows(): DesktopWindow[] {
@@ -99,10 +107,12 @@ interface WindowProps {
   height?: number;
   children: ReactNode;
   footer?: ReactNode;
+  /** Classes of the body, which scrolls with padding unless they say otherwise. */
+  bodyClassName?: string;
 }
 
 /** A card with a title bar to drag it by, like the panel's dialogs. */
-export function Window({ window: win, title, icon, width = 520, height = 460, children, footer }: WindowProps) {
+export function Window({ window: win, title, icon, width = 520, height = 460, children, footer, bodyClassName }: WindowProps) {
   const drag = useRef<{ dx: number; dy: number } | null>(null);
 
   const onPointerDown = useCallback(
@@ -117,7 +127,7 @@ export function Window({ window: win, title, icon, width = 520, height = 460, ch
     (e: React.PointerEvent<HTMLDivElement>) => {
       if (!drag.current) return;
       const x = Math.min(Math.max(e.clientX - drag.current.dx, -width + 80), globalThis.innerWidth - 80);
-      const y = Math.min(Math.max(e.clientY - drag.current.dy, 0), globalThis.innerHeight - 40);
+      const y = Math.min(Math.max(e.clientY - drag.current.dy, 0), globalThis.innerHeight - TASKBAR_HEIGHT - 40);
       desktopWindows.move(win.id, x, y);
     },
     [win.id, width],
@@ -136,7 +146,7 @@ export function Window({ window: win, title, icon, width = 520, height = 460, ch
         top: win.y,
         zIndex: win.z,
         width: `min(${width}px, calc(100vw - 16px))`,
-        height: `min(${height}px, calc(100vh - 16px))`,
+        height: `min(${height}px, calc(100vh - 16px - ${TASKBAR_HEIGHT}px))`,
         resize: "both",
         minWidth: 280,
         minHeight: 200,
@@ -155,7 +165,7 @@ export function Window({ window: win, title, icon, width = 520, height = 460, ch
           <X />
         </Button>
       </div>
-      <div className="min-h-0 flex-1 overflow-auto p-4">{children}</div>
+      <div className={cn("min-h-0 flex-1 overflow-auto p-4", bodyClassName)}>{children}</div>
       {footer && <div className="flex items-center justify-end gap-2 border-t px-4 py-3">{footer}</div>}
     </section>
   );

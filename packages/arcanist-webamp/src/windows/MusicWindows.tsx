@@ -5,7 +5,7 @@ import { app } from "../app";
 import { Window, type DesktopWindow } from "../desktop/windows";
 import { t } from "../i18n";
 import { Button, cn } from "../ui/ui";
-import { Artwork, ListActions, Loading, TrackList, artistsOf, useLoad } from "./common";
+import { Artwork, ListActions, Loading, MixCard, TrackList, artistsOf, useLoad } from "./common";
 
 /** The user's StarTracks, newest first. */
 export function StarTracksWindow({ window: win }: { window: DesktopWindow }) {
@@ -29,41 +29,16 @@ export function StarTracksWindow({ window: win }: { window: DesktopWindow }) {
   );
 }
 
-function mixTitle(mix: api.Mix): string {
-  return t(`mixes.kind.${mix.kind}` as "mixes.kind.ARTIST", { subject: mix.subject ?? "" });
-}
-
 /** The mixes Arcanist made for the user today. */
 export function MixesWindow({ window: win }: { window: DesktopWindow }) {
   const { data, error, loading } = useLoad(() => api.mixes(), []);
-  const [busy, setBusy] = useState<string | null>(null);
-  const play = async (mix: api.Mix, append: boolean) => {
-    setBusy(mix.id);
-    try {
-      const tracks = await api.mixTracks(mix.id);
-      if (append) app.player.append(tracks);
-      else app.player.play(tracks);
-    } finally {
-      setBusy(null);
-    }
-  };
   return (
     <Window window={win} title={t("mixes.title")} icon={<Disc3 className="size-4" />} width={560} height={480}>
       <Loading error={error} loading={loading && !data} />
       <ul className="grid grid-cols-[repeat(auto-fill,minmax(150px,1fr))] gap-3">
         {(data ?? []).map((mix) => (
-          <li key={mix.id} className={cn("grid gap-2 rounded-lg border p-2", busy === mix.id && "opacity-60")}>
-            <button className="grid gap-2 text-left" onClick={() => play(mix, false)}>
-              <div className="grid grid-cols-2 gap-0.5 overflow-hidden rounded-md">
-                {[0, 1, 2, 3].map((i) => (
-                  <Artwork key={i} id={mix.artworkIds[i] ?? mix.artworkIds[0]} size={68} className="w-full rounded-none" />
-                ))}
-              </div>
-              <span className="truncate text-sm font-medium">{mixTitle(mix)}</span>
-            </button>
-            <Button size="sm" variant="outline" onClick={() => play(mix, true)}>
-              {t("common.add")}
-            </Button>
+          <li key={mix.id}>
+            <MixCard mix={mix} />
           </li>
         ))}
       </ul>

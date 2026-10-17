@@ -13,6 +13,7 @@ export type WindowKind =
   | "starTracks"
   | "mixes"
   | "upload"
+  | "uploads"
   | "lyrics"
   | "account"
   | "personalize"

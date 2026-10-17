@@ -1,6 +1,7 @@
 import { useState, type ReactNode } from "react";
 import { Code } from "lucide-react";
-import { app, useLibraries } from "../app";
+import { app, useLibraries, useMyCloud } from "../app";
+import { DragGhost } from "../dnd";
 import { t } from "../i18n";
 import { useSettings, type IconSize } from "../settings";
 import { cn } from "../ui/ui";
@@ -10,6 +11,7 @@ import { LyricsWindow, MixesWindow, StarTracksWindow } from "../windows/MusicWin
 import { PersonalizeWindow } from "../windows/PersonalizeWindow";
 import { PlaylistsWindow, SavePlaylistWindow } from "../windows/PlaylistWindows";
 import { SkinsWindow } from "../windows/SkinsWindow";
+import { UploadsWindow } from "../windows/UploadsWindow";
 import { KINDS, WEBAMP_KIND } from "./kinds";
 import { Taskbar } from "./Taskbar";
 import { desktopWindows, useDesktopWindows, type DesktopWindow, type WindowKind } from "./windows";
@@ -26,6 +28,9 @@ export interface DesktopIcon {
 export function useDesktopIcons(): DesktopIcon[] {
   const libraries = useLibraries();
   const canUpload = libraries?.some((l) => l.canUpload) ?? false;
+  // Their history of uploads, when they can send something somewhere.
+  useMyCloud();
+  const hasUploads = app.hasUploadHistory && (canUpload || app.canUploadToCloud);
   const kind = (id: WindowKind): DesktopIcon => ({
     id,
     label: KINDS[id].label(),
@@ -41,6 +46,7 @@ export function useDesktopIcons(): DesktopIcon[] {
     kind("mixes"),
     kind("lyrics"),
     ...(canUpload ? [kind("upload")] : []),
+    ...(hasUploads ? [kind("uploads")] : []),
     kind("account"),
     kind("personalize"),
     kind("skins"),
@@ -116,6 +122,7 @@ export function Desktop() {
         <WindowContent key={win.id} window={win} />
       ))}
       <Taskbar />
+      <DragGhost />
     </>
   );
 }
@@ -136,6 +143,8 @@ function WindowContent({ window: win }: { window: DesktopWindow }) {
       return <LyricsWindow window={win} />;
     case "upload":
       return <UploadWindow window={win} />;
+    case "uploads":
+      return <UploadsWindow window={win} />;
     case "account":
       return <AccountWindow window={win} />;
     case "personalize":

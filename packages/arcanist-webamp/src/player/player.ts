@@ -7,6 +7,7 @@ import isButterchurnSupported from "butterchurn/dist/isSupported.min";
 import { absolute, artworkUrl } from "../api/client";
 import { recordPlay, type Track } from "../api/arcanist";
 import { desktopWindows, TASKBAR_HEIGHT } from "../desktop/windows";
+import { draggedTracks, webampDragOut } from "../dnd";
 import { settings } from "../settings";
 
 /** Webamp's windows and menus sit below Arcanist's own windows. */
@@ -84,6 +85,10 @@ export class ArcanistPlayer {
         hooks.addFromLibrary();
         return null;
       },
+      // Songs dragged from Arcanist's windows: into the playlist where they are dropped (or played, on the main window).
+      handleTrackDropEvent: (e) => draggedTracks(e)?.map((t) => this.toWebamp(t)) ?? null,
+      // Songs dragged out of the playlist, to Arcanist's windows.
+      onTracksDragOut: (event) => webampDragOut(event, event.trackIds.map((id) => this.trackOf(id)).filter((t): t is Track => t != null)),
       ...(butterchurn
         ? {
             __butterchurnOptions: {

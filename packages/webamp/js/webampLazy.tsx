@@ -537,6 +537,7 @@ class Webamp {
           contextMenuExtensions={{
             main: this.options.mainContextMenuItems,
             track: this.options.trackContextMenuItems,
+            dragOut: this.options.onTracksDragOut,
           }}
           onMount={onMount}
           parentDomNode={contained ? node : document.body}

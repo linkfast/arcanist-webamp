@@ -3,7 +3,7 @@ import { CircleUser, LogOut, Settings2, Upload, UserCog } from "lucide-react";
 import * as api from "../api/arcanist";
 import { logout, refresh, session } from "../api/client";
 import { app, managesServer, openPanel } from "../app";
-import { Window, type DesktopWindow } from "../desktop/windows";
+import { Window, desktopWindows, type DesktopWindow } from "../desktop/windows";
 import { errorText, t } from "../i18n";
 import { Button, Select, Spinner, cn } from "../ui/ui";
 import { Loading, useLoad } from "./common";
@@ -99,7 +99,14 @@ export function UploadWindow({ window: win }: { window: DesktopWindow }) {
               e.target.value = "";
             }}
           />
-          <p className="text-xs text-muted-foreground">{t("upload.help")}</p>
+          <p className="flex flex-wrap items-center justify-between gap-2 text-xs text-muted-foreground">
+            {t("upload.help")}
+            {app.hasUploadHistory && (
+              <Button variant="link" size="sm" className="h-auto px-0 text-xs" onClick={() => desktopWindows.open("uploads")}>
+                {t("upload.history")}
+              </Button>
+            )}
+          </p>
           <ul className="grid gap-1.5">
             {items.map((item, i) => (
               <li key={i} className="grid gap-1 text-sm">

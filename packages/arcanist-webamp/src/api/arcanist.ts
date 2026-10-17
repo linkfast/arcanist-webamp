@@ -360,3 +360,114 @@ export function upload(libraryId: string, file: File, token: string, onProgress:
     request.send(file);
   });
 }
+
+export interface PlaylistEntry {
+  /** The entry (the same song can be there twice): what is moved and removed. */
+  id: string;
+  /** Its place in the whole playlist, songs the user cannot play included. */
+  position: number;
+  track: Track;
+}
+
+export async function playlistEntries(playlistId: string): Promise<PlaylistEntry[]> {
+  const result: PlaylistEntry[] = [];
+  let after: string | null = null;
+  do {
+    const page: Page<PlaylistEntry> = (
+      await gql<{ playlistEntries: Page<PlaylistEntry> }>(
+        `query($id: ID!, $a: String) { playlistEntries(playlistId: $id, after: $a, first: 500) { items { id position track { ${TRACK} } } nextCursor } }`,
+        { id: playlistId, a: after }
+      )
+    ).playlistEntries;
+    result.push(...page.items);
+    after = page.nextCursor;
+  } while (after);
+  return result;
+}
+
+/** Adds songs to a playlist: at a position, or at the end. */
+export async function insertIntoPlaylist(playlistId: string, trackIds: string[], position: number | null): Promise<Playlist> {
+  return (
+    await gql<{ addPlaylistTracks: Playlist }>(
+      `mutation($id: ID!, $i: AddPlaylistTracksInput!) { addPlaylistTracks(playlistId: $id, input: $i) { ${PLAYLIST} } }`,
+      { id: playlistId, i: { trackIds, position } }
+    )
+  ).addPlaylistTracks;
+}
+
+/** Moves entries together to a position of the playlist without them, keeping their order. */
+export async function movePlaylistEntries(playlistId: string, entryIds: string[], position: number): Promise<Playlist> {
+  return (
+    await gql<{ movePlaylistEntries: Playlist }>(
+      `mutation($id: ID!, $i: MovePlaylistEntriesInput!) { movePlaylistEntries(playlistId: $id, input: $i) { ${PLAYLIST} } }`,
+      { id: playlistId, i: { entryIds, position } }
+    )
+  ).movePlaylistEntries;
+}
+
+export async function removePlaylistEntries(playlistId: string, entryIds: string[]): Promise<Playlist> {
+  return (
+    await gql<{ removePlaylistEntries: Playlist }>(
+      `mutation($id: ID!, $e: [ID!]!) { removePlaylistEntries(playlistId: $id, entryIds: $e) { ${PLAYLIST} } }`,
+      { id: playlistId, e: entryIds }
+    )
+  ).removePlaylistEntries;
+}
+
+/** The user's own Ultimate Cloud account, as far as this player cares. */
+export interface MyCloud {
+  /** The Ultimate Cloud extension is on. */
+  enabled: boolean;
+  state: "NOT_CONFIGURED" | "UNLINKED" | "PENDING" | "LINKED";
+  tier: "NONE" | "FREE" | "PAID";
+  /** Their personal library with the account's music. */
+  libraryId: string | null;
+}
+
+export async function myCloud(): Promise<MyCloud> {
+  return (await gql<{ myUltimateCloud: MyCloud }>(`query { myUltimateCloud { enabled state tier libraryId } }`)).myUltimateCloud;
+}
+
+export type MyUploadStatus = "PROCESSING" | "ADDED" | "DUPLICATE" | "NOT_ADDED" | "QUEUED" | "UPLOADING" | "UPLOADED" | "ALREADY_IN_CLOUD" | "FAILED";
+
+export interface MyUpload {
+  id: string;
+  kind: "LIBRARY" | "ULTIMATE_CLOUD";
+  status: MyUploadStatus;
+  name: string;
+  size: number | null;
+  libraryName: string | null;
+  track: Track | null;
+  errorCode: string | null;
+  createdAt: string;
+}
+
+export interface MyUploadPage extends Page<MyUpload> {
+  /** How many are still on their way. */
+  active: number;
+}
+
+const UPLOAD = `id kind status name size libraryName errorCode createdAt track { ${TRACK} }`;
+
+export async function myUploads(after: string | null): Promise<MyUploadPage> {
+  return (
+    await gql<{ myUploads: MyUploadPage }>(
+      `query($a: String) { myUploads(after: $a, first: 100) { items { ${UPLOAD} } nextCursor totalCount active } }`,
+      { a: after }
+    )
+  ).myUploads;
+}
+
+/** Forgets the finished uploads; returns how many. */
+export async function clearMyUploads(): Promise<number> {
+  return (await gql<{ clearMyUploads: number }>(`mutation { clearMyUploads }`)).clearMyUploads;
+}
+
+/** Sends songs to the user's own Ultimate Cloud library, in the background. */
+export async function uploadToMyCloud(trackIds: string[]): Promise<MyUpload[]> {
+  return (
+    await gql<{ uploadTracksToMyCloud: MyUpload[] }>(`mutation($i: UploadTracksToMyCloudInput!) { uploadTracksToMyCloud(input: $i) { ${UPLOAD} } }`, {
+      i: { trackIds },
+    })
+  ).uploadTracksToMyCloud;
+}

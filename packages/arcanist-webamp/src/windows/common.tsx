@@ -6,7 +6,8 @@ import { artworkUrl } from "../api/client";
 import { app } from "../app";
 import { errorText, t } from "../i18n";
 import { albumMenu, artistMenu, playMix, run, songMenu } from "../menus";
-import { openMenu } from "../ui/menu";
+import { endTrackDrag, startTrackDrag } from "../dnd";
+import { openMenu, type MenuItem } from "../ui/menu";
 import { Button, Spinner, cn } from "../ui/ui";
 
 export function duration(ms: number): string {
@@ -124,29 +125,93 @@ export function ListActions({ tracks, playLabel = t("common.play") }: { tracks: 
   );
 }
 
-/** Songs: double-click plays from there; each row can be played or added alone, and has the menu of songs. */
-export function TrackList({ tracks, numbered = false, empty }: { tracks: Track[]; numbered?: boolean; empty?: string }) {
+interface TrackListProps {
+  tracks: Track[];
+  numbered?: boolean;
+  empty?: string;
+  /** The playlist the rows are entries of (with each row's entry id): dragging them moves them within it. */
+  entries?: { playlistId: string; ids: string[] };
+  /** Items added to the menu of the selected rows (their indexes). */
+  extraMenu?: (indexes: number[]) => MenuItem[];
+  /** Where dragged songs would go: a line before that row (or after the last one). */
+  insertAt?: number | null;
+}
+
+/**
+ * Songs: double-click plays from there; click selects (Ctrl adds, Shift a range); the selection has the menu of
+ * songs and can be dragged to Webamp's playlist and Arcanist's windows. Each row can be played or added alone.
+ */
+export function TrackList({ tracks, numbered = false, empty, entries, extraMenu, insertAt = null }: TrackListProps) {
   // StarTracks changed from the menu, until the list is loaded again.
   const [changed, setChanged] = useState<Record<string, boolean>>({});
-  const [selected, setSelected] = useState<string | null>(null);
-  useEffect(() => setChanged({}), [tracks]);
+  const [selected, setSelected] = useState<Set<number>>(new Set());
+  const anchor = useRef<number | null>(null);
+  useEffect(() => {
+    setChanged({});
+    setSelected(new Set());
+    anchor.current = null;
+  }, [tracks]);
   if (tracks.length === 0) return <p className="py-6 text-center text-sm text-muted-foreground">{empty ?? t("common.empty")}</p>;
   const onChange = (track: Track) => setChanged((c) => ({ ...c, [track.id]: track.starred }));
+  const shown = (i: number) => (tracks[i].id in changed ? { ...tracks[i], starred: changed[tracks[i].id] } : tracks[i]);
+
+  const select = (i: number, e: { ctrlKey: boolean; metaKey: boolean; shiftKey: boolean }) => {
+    if (e.shiftKey && anchor.current != null) {
+      const [from, to] = anchor.current < i ? [anchor.current, i] : [i, anchor.current];
+      setSelected(new Set(Array.from({ length: to - from + 1 }, (_, k) => from + k)));
+      return;
+    }
+    if (e.ctrlKey || e.metaKey) {
+      setSelected((current) => {
+        const next = new Set(current);
+        if (!next.delete(i)) next.add(i);
+        return next;
+      });
+    } else {
+      setSelected(new Set([i]));
+    }
+    anchor.current = i;
+  };
+  /** The selection when the row is in it, otherwise that row alone (which becomes the selection). */
+  const pick = (i: number): number[] => {
+    if (selected.has(i)) return [...selected].sort((a, b) => a - b);
+    setSelected(new Set([i]));
+    anchor.current = i;
+    return [i];
+  };
+  // Where dragged songs would go: a line over the row's top (or the last row's bottom), which moves nothing.
+  const line = (i: number) =>
+    insertAt === i
+      ? "shadow-[inset_0_2px_0_var(--primary)]"
+      : insertAt === tracks.length && i === tracks.length - 1
+        ? "shadow-[inset_0_-2px_0_var(--primary)]"
+        : null;
+
   return (
     <ul className="grid gap-0.5">
-      {tracks.map((original, i) => {
-        const track = original.id in changed ? { ...original, starred: changed[original.id] } : original;
-        const key = `${track.id}-${i}`;
+      {tracks.map((_, i) => {
+        const track = shown(i);
         return (
           <li
-            key={key}
-            className={cn("group flex items-center gap-3 rounded-md px-2 py-1.5 select-none hover:bg-accent/50", selected === key && "bg-accent")}
-            onClick={() => setSelected(key)}
+            key={`${track.id}-${i}`}
+            data-drop-index={i}
+            draggable
+            className={cn("group flex items-center gap-3 rounded-md px-2 py-1.5 select-none hover:bg-accent/50", selected.has(i) && "bg-accent", line(i))}
+            onClick={(e) => select(i, e)}
             onDoubleClick={() => app.player.play(tracks.slice(i))}
             onContextMenu={(e) => {
-              setSelected(key);
-              openMenu(e, songMenu([track], { onChange }));
+              const indexes = pick(i);
+              openMenu(e, [...songMenu(indexes.map(shown), { onChange }), ...(extraMenu?.(indexes) ?? [])]);
             }}
+            onDragStart={(e) => {
+              const indexes = pick(i);
+              startTrackDrag(
+                e,
+                indexes.map(shown),
+                entries ? { playlistId: entries.playlistId, entryIds: indexes.map((k) => entries.ids[k]) } : undefined,
+              );
+            }}
+            onDragEnd={endTrackDrag}
           >
             {numbered ? (
               <span className="w-6 text-right text-xs tabular-nums text-muted-foreground">{track.trackNumber ?? ""}</span>

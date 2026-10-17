@@ -5,12 +5,16 @@ import classnames from "classnames";
 import { createContext } from "react";
 import { useTypedSelector } from "../hooks";
 import * as Selectors from "../selectors";
-import { ContextMenuItem } from "../types";
+import { ContextMenuItem, TrackDragOutEvent } from "../types";
 
-/** The context menu items the host page adds (Options.mainContextMenuItems / trackContextMenuItems). */
+/**
+ * What the host page adds: context menu items (Options.mainContextMenuItems / trackContextMenuItems) and taking
+ * tracks dragged out of the playlist (Options.onTracksDragOut).
+ */
 export const ContextMenuExtensions = createContext<{
   main?: () => ContextMenuItem[];
   track?: (trackIds: number[]) => ContextMenuItem[] | null;
+  dragOut?: (event: TrackDragOutEvent) => void;
 }>({});
 
 /** Renders items given by the host page with the menu's own nodes. */

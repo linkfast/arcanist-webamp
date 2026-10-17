@@ -1,5 +1,5 @@
 import type { ReactNode } from "react";
-import { CircleUser, Disc3, FileText, Library, ListMusic, Paintbrush, Palette, Save, Star, Upload, Zap } from "lucide-react";
+import { CircleUser, Disc3, FileText, History, Library, ListMusic, Paintbrush, Palette, Save, Star, Upload, Zap } from "lucide-react";
 import { t } from "../i18n";
 import type { WindowKind } from "./windows";
 
@@ -30,6 +30,7 @@ export const KINDS: Record<WindowKind, Kind> = {
   mixes: { label: () => t("icon.mixes"), glyph: (c) => <Disc3 className={c} />, tile: "bg-rose-700" },
   lyrics: { label: () => t("icon.lyrics"), glyph: (c) => <FileText className={c} />, tile: "bg-teal-700" },
   upload: { label: () => t("icon.upload"), glyph: (c) => <Upload className={c} />, tile: "bg-orange-700" },
+  uploads: { label: () => t("icon.uploads"), glyph: (c) => <History className={c} />, tile: "bg-amber-700" },
   account: { label: () => t("icon.account"), glyph: (c) => <CircleUser className={c} />, tile: "bg-zinc-700" },
   personalize: { label: () => t("icon.personalize"), glyph: (c) => <Paintbrush className={c} />, tile: "bg-indigo-700" },
   skins: { label: () => t("icon.skins"), glyph: (c) => <Palette className={c} />, tile: "bg-fuchsia-800" },

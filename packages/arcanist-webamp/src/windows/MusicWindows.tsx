@@ -3,16 +3,34 @@ import { Disc3, FileText, Star } from "lucide-react";
 import * as api from "../api/arcanist";
 import { app } from "../app";
 import { Window, type DesktopWindow } from "../desktop/windows";
+import { useTrackDrop } from "../dnd";
 import { t } from "../i18n";
+import { run } from "../menus";
 import { Button, cn } from "../ui/ui";
 import { Artwork, ListActions, Loading, MixCard, TrackList, artistsOf, useLoad } from "./common";
 
 /** The user's StarTracks, newest first. */
 export function StarTracksWindow({ window: win }: { window: DesktopWindow }) {
   const { data, error, loading, reload } = useLoad(() => api.starTracks(), []);
+  // Songs dropped here become StarTracks.
+  const drop = useTrackDrop({
+    onDrop: (d) =>
+      run(
+        async () => {
+          const marked = [];
+          for (const track of d.tracks.filter((x) => !x.starred)) marked.push(await api.starTrack(track.id, true));
+          return marked;
+        },
+        (marked) => {
+          for (const track of marked) app.player.update(track);
+          reload();
+          return marked.length ? t("starTracks.added", { count: marked.length }) : undefined;
+        },
+      ),
+  });
   return (
     <Window window={win} title={t("starTracks.title")} icon={<Star className="size-4 fill-amber-400 text-amber-400" />} width={560} height={520}>
-      <div className="grid gap-3">
+      <div {...drop.props} className={cn("grid min-h-full content-start gap-3 rounded-lg", drop.over && "ring-2 ring-[var(--ring)]")}>
         <div className="flex items-center justify-between gap-2">
           {data && <ListActions tracks={data} playLabel={t("starTracks.playAll")} />}
           <Button variant="ghost" size="sm" onClick={reload}>

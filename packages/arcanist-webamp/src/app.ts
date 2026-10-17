@@ -17,6 +17,8 @@ let pendingLoad: ((tracks: api.Track[] | null) => void) | null = null;
 let libraries: api.Library[] | null = null;
 let loadingLibraries: Promise<api.Library[]> | null = null;
 const libraryListeners = new Set<() => void>();
+let myCloud: api.MyCloud | null = null;
+const cloudListeners = new Set<() => void>();
 
 /** A page of Arcanist's panel (same server, wherever this player is mounted), in a new tab. */
 export function openPanel(path = ""): void {
@@ -81,6 +83,27 @@ export const app = {
     const id = settings.value.libraryId;
     return id && app.canChooseLibrary && libraries!.some((l) => l.id === id) ? id : null;
   },
+  /** The user's own Ultimate Cloud account (null until known, or when the server cannot send songs there). */
+  get myCloud(): api.MyCloud | null {
+    return myCloud;
+  },
+  async loadMyCloud(): Promise<void> {
+    if (!server?.features.includes("MY_CLOUD_UPLOADS")) return;
+    try {
+      myCloud = await api.myCloud();
+    } catch {
+      myCloud = null;
+    }
+    for (const listener of cloudListeners) listener();
+  },
+  /** Whether songs can go to the user's own Ultimate Cloud: linked, and allowed to take copies (DOWNLOAD). */
+  get canUploadToCloud(): boolean {
+    return myCloud != null && myCloud.enabled && myCloud.state === "LINKED" && myCloud.tier !== "NONE" && session.can("DOWNLOAD");
+  },
+  /** Whether the server keeps the user's history of uploads. */
+  get hasUploadHistory(): boolean {
+    return server?.features.includes("UPLOAD_HISTORY") ?? false;
+  },
   /** The playlist window answers Webamp's LOAD LIST with the chosen playlist's tracks. */
   resolveLoad(tracks: api.Track[] | null): void {
     pendingLoad?.(tracks);
@@ -99,6 +122,7 @@ export const app = {
             { label: t("menu.mixes"), onClick: () => desktopWindows.open("mixes") },
             { label: t("menu.lyrics"), onClick: () => desktopWindows.open("lyrics") },
             { label: t("menu.upload"), onClick: () => desktopWindows.open("upload") },
+            ...(app.hasUploadHistory ? [{ label: t("menu.uploads"), onClick: () => desktopWindows.open("uploads") }] : []),
             { label: t("menu.personalize"), onClick: () => desktopWindows.open("personalize") },
             { label: t("menu.skins"), onClick: () => desktopWindows.open("skins") },
             { type: "separator" },
@@ -122,6 +146,7 @@ export const app = {
     void app.loadLibraries().catch(() => {
       // The windows that need them ask again.
     });
+    void app.loadMyCloud();
     return player;
   },
 };
@@ -145,5 +170,16 @@ export function useLibraries(): api.Library[] | null {
       return () => libraryListeners.delete(listener);
     },
     () => libraries,
+  );
+}
+
+/** The user's own Ultimate Cloud account, once known. */
+export function useMyCloud(): api.MyCloud | null {
+  return useSyncExternalStore(
+    (listener) => {
+      cloudListeners.add(listener);
+      return () => cloudListeners.delete(listener);
+    },
+    () => myCloud,
   );
 }

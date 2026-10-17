@@ -1,4 +1,5 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useContext } from "react";
+import { useStore } from "react-redux";
 
 import * as Selectors from "../../selectors";
 import { TRACK_HEIGHT } from "../../constants";
@@ -7,6 +8,8 @@ import TrackCell from "./TrackCell";
 import TrackTitle from "./TrackTitle";
 import { useTypedSelector, useActionCreator } from "../../hooks";
 import * as Utils from "../../utils";
+import { ContextMenuExtensions } from "../ContextMenu";
+import { AppState } from "../../types";
 
 function getNumberLength(number: number): number {
   return number.toString().length;
@@ -25,6 +28,8 @@ function TrackList() {
   const [node, setNode] = useState<HTMLElement | null>(null);
   const [moving, setMoving] = useState(false);
   const [mouseStartY, setMouseStartY] = useState<number | null>(null);
+  const dragOut = useContext(ContextMenuExtensions).dragOut;
+  const store = useStore<AppState>();
 
   const _handleMoveClick = (
     e: React.MouseEvent<HTMLDivElement> | React.TouchEvent<HTMLDivElement>
@@ -39,12 +44,41 @@ function TrackList() {
     }
     const { top, bottom, left, right } = node.getBoundingClientRect();
     let lastDiff = 0;
+    // Dragged outside of the track list, the selected tracks go to the host page (when it takes them).
+    let outside = false;
+    let lastX = 0;
+    let lastY = 0;
+    const selected = () => {
+      const state = store.getState();
+      const ids = new Set(Selectors.getSelectedTrackIds(state));
+      return state.playlist.trackOrder.filter((id) => ids.has(id));
+    };
     const handleMouseMove = (ee: MouseEvent | TouchEvent) => {
       const x = Utils.getX(ee);
       const y = Utils.getY(ee);
+      lastX = x;
+      lastY = y;
       if (y < top || y > bottom || x < left || x > right) {
         // Mouse is outside the track list
+        if (dragOut != null) {
+          outside = true;
+          dragOut({
+            phase: "move",
+            trackIds: selected(),
+            clientX: x,
+            clientY: y,
+          });
+        }
         return;
+      }
+      if (outside) {
+        outside = false;
+        dragOut?.({
+          phase: "cancel",
+          trackIds: selected(),
+          clientX: x,
+          clientY: y,
+        });
       }
       const proposedDiff = Math.floor((y - mouseStartY) / TRACK_HEIGHT);
       if (proposedDiff !== lastDiff) {
@@ -58,7 +92,17 @@ function TrackList() {
     // causes our useEffect to rerun which removes all of these event listeners.
     // It might be a little tigher to actually remove these listeners in the
     // `handleMouseUp` callback, but... I'm lazy.
-    const handleMouseUp = () => setMoving(false);
+    const handleMouseUp = () => {
+      if (outside) {
+        dragOut?.({
+          phase: "drop",
+          trackIds: selected(),
+          clientX: lastX,
+          clientY: lastY,
+        });
+      }
+      setMoving(false);
+    };
     window.addEventListener("mouseup", handleMouseUp);
     window.addEventListener("mousemove", handleMouseMove);
     window.addEventListener("touchend", handleMouseUp);

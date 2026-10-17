@@ -732,6 +732,12 @@ export interface Options {
    * order (the clicked track is selected first). Return `null` to show the main context menu instead.
    */
   trackContextMenuItems?: (trackIds: number[]) => ContextMenuItem[] | null;
+
+  /**
+   * Called while selected tracks of the playlist are dragged outside of its track list (the host page can take them),
+   * when they are dropped there, and when the drag comes back or ends elsewhere. Without it, dragging only reorders.
+   */
+  onTracksDragOut?: (event: TrackDragOutEvent) => void;
   handleTrackDropEvent?: (
     e: React.DragEvent<HTMLDivElement>
   ) => Track[] | null | Promise<Track[] | null>;
@@ -926,6 +932,16 @@ export interface IMusicMetadataApi {
 }
 
 export type IMetadataApi = IMusicMetadataBrowserApi | IMusicMetadataApi;
+
+/** Tracks of the playlist dragged outside of its track list (Options.onTracksDragOut). */
+export interface TrackDragOutEvent {
+  /** `move` while outside, `drop` when released outside, `cancel` when back inside or released inside. */
+  phase: "move" | "drop" | "cancel";
+  /** The dragged tracks' ids, in playlist order. */
+  trackIds: number[];
+  clientX: number;
+  clientY: number;
+}
 
 export interface Extras {
   requireJSZip(): Promise<any>;

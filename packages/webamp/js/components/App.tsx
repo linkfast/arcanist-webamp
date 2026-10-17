@@ -6,7 +6,7 @@ import {
   StrictMode,
 } from "react";
 import ReactDOM from "react-dom";
-import { ContextMenuItem, FilePicker } from "../types";
+import { ContextMenuItem, FilePicker, TrackDragOutEvent } from "../types";
 import { WINDOWS } from "../constants";
 import * as Selectors from "../selectors";
 import * as Actions from "../actionCreators";
@@ -33,6 +33,7 @@ interface Props {
   contextMenuExtensions?: {
     main?: () => ContextMenuItem[];
     track?: (trackIds: number[]) => ContextMenuItem[] | null;
+    dragOut?: (event: TrackDragOutEvent) => void;
   };
   media: IMedia;
   parentDomNode: HTMLElement;

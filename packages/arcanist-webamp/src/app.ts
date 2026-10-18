@@ -19,6 +19,8 @@ let loadingLibraries: Promise<api.Library[]> | null = null;
 const libraryListeners = new Set<() => void>();
 let myCloud: api.MyCloud | null = null;
 const cloudListeners = new Set<() => void>();
+let extensionApps: api.ExtensionApp[] = [];
+const extensionListeners = new Set<() => void>();
 
 /** A page of Arcanist's panel (same server, wherever this player is mounted), in a new tab. */
 export function openPanel(path = ""): void {
@@ -44,6 +46,20 @@ export const app = {
   },
   setServer(info: api.ServerInfo): void {
     server = info;
+    api.setUploadSource(info.features.includes("EXTENSION_APPS"));
+  },
+  /** The apps of the server's extensions the user may open (loaded once). */
+  get extensionApps(): api.ExtensionApp[] {
+    return extensionApps;
+  },
+  async loadExtensionApps(): Promise<void> {
+    if (!server?.features.includes("EXTENSION_APPS")) return;
+    try {
+      extensionApps = await api.extensionApps();
+    } catch {
+      extensionApps = [];
+    }
+    for (const listener of extensionListeners) listener();
   },
   get playlists(): api.Playlist[] {
     return playlists;
@@ -147,6 +163,7 @@ export const app = {
       // The windows that need them ask again.
     });
     void app.loadMyCloud();
+    void app.loadExtensionApps();
     return player;
   },
 };
@@ -170,6 +187,17 @@ export function useLibraries(): api.Library[] | null {
       return () => libraryListeners.delete(listener);
     },
     () => libraries,
+  );
+}
+
+/** The apps of the server's extensions the user may open. */
+export function useExtensionApps(): api.ExtensionApp[] {
+  return useSyncExternalStore(
+    (listener) => {
+      extensionListeners.add(listener);
+      return () => extensionListeners.delete(listener);
+    },
+    () => extensionApps,
   );
 }
 

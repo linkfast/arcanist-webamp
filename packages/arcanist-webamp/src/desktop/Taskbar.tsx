@@ -1,12 +1,13 @@
 import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { Code, LogOut, Settings2, UserCog } from "lucide-react";
 import { logout, session } from "../api/client";
-import { app, managesServer, openPanel, useLibraries } from "../app";
+import type { ExtensionApp } from "../api/arcanist";
+import { app, managesServer, openPanel, useExtensionApps, useLibraries } from "../app";
 import { language, t } from "../i18n";
 import { MenuList, type MenuItem } from "../ui/menu";
 import { cn } from "../ui/ui";
-import { KINDS, WEBAMP_KIND } from "./kinds";
-import { desktopWindows, useDesktopWindows, type WindowKind } from "./windows";
+import { AppGlyph, KINDS, WEBAMP_KIND } from "./kinds";
+import { desktopWindows, openExtensionApp, useDesktopWindows, type WindowKind } from "./windows";
 
 // The desktop's taskbar: a start button with the app's menu, a button per open window (and Webamp's), and a clock.
 
@@ -77,6 +78,7 @@ function StartMenu({ onClose }: { onClose: () => void }) {
     };
   }, [onClose]);
 
+  const extensionApps = useExtensionApps();
   const window = (kind: WindowKind): MenuItem => ({ label: KINDS[kind].label(), icon: KINDS[kind].glyph(), onClick: () => desktopWindows.open(kind) });
   const items: MenuItem[] = [
     window("library"),
@@ -85,6 +87,13 @@ function StartMenu({ onClose }: { onClose: () => void }) {
     window("mixes"),
     window("lyrics"),
     ...(canUpload ? [window("upload")] : []),
+    ...extensionApps.map(
+      (extension): MenuItem => ({
+        label: extension.name,
+        icon: <AppGlyph iconUrl={extension.iconUrl} className="size-4" />,
+        onClick: () => openExtensionApp(extension),
+      }),
+    ),
     { type: "separator" },
     window("personalize"),
     window("skins"),
@@ -173,7 +182,10 @@ export function Taskbar() {
             </button>
           </li>
           {windows.map((win) => {
-            const kind = KINDS[win.kind];
+            const extension = win.kind === "extensionApp" ? (win.props.app as ExtensionApp) : null;
+            const kind = extension
+              ? { label: () => extension.name, glyph: () => <AppGlyph iconUrl={extension.iconUrl} className="size-4" /> }
+              : KINDS[win.kind];
             return (
               <li key={win.id} className="min-w-0">
                 <button

@@ -1,4 +1,5 @@
 import { gql, rest } from "./client";
+import { language } from "../i18n";
 
 // What this player reads of Arcanist's API (docs/developers/README.md in Arcanist).
 
@@ -440,6 +441,8 @@ export interface MyUpload {
   track: Track | null;
   errorCode: string | null;
   createdAt: string;
+  /** The extension that brought the file (such as "youtube"); null when the user sent it. */
+  source?: string | null;
 }
 
 export interface MyUploadPage extends Page<MyUpload> {
@@ -447,12 +450,20 @@ export interface MyUploadPage extends Page<MyUpload> {
   active: number;
 }
 
-const UPLOAD = `id kind status name size libraryName errorCode createdAt track { ${TRACK} }`;
+let uploadSource = false;
+
+/** Whether the server names the extension that brought each upload (EXTENSION_APPS). */
+export function setUploadSource(on: boolean): void {
+  uploadSource = on;
+}
+
+const UPLOAD_BASE = `id kind status name size libraryName errorCode createdAt track { ${TRACK} }`;
+const uploadFields = () => (uploadSource ? `${UPLOAD_BASE} source` : UPLOAD_BASE);
 
 export async function myUploads(after: string | null): Promise<MyUploadPage> {
   return (
     await gql<{ myUploads: MyUploadPage }>(
-      `query($a: String) { myUploads(after: $a, first: 100) { items { ${UPLOAD} } nextCursor totalCount active } }`,
+      `query($a: String) { myUploads(after: $a, first: 100) { items { ${uploadFields()} } nextCursor totalCount active } }`,
       { a: after }
     )
   ).myUploads;
@@ -466,8 +477,29 @@ export async function clearMyUploads(): Promise<number> {
 /** Sends songs to the user's own Ultimate Cloud library, in the background. */
 export async function uploadToMyCloud(trackIds: string[]): Promise<MyUpload[]> {
   return (
-    await gql<{ uploadTracksToMyCloud: MyUpload[] }>(`mutation($i: UploadTracksToMyCloudInput!) { uploadTracksToMyCloud(input: $i) { ${UPLOAD} } }`, {
+    await gql<{ uploadTracksToMyCloud: MyUpload[] }>(`mutation($i: UploadTracksToMyCloudInput!) { uploadTracksToMyCloud(input: $i) { ${uploadFields()} } }`, {
       i: { trackIds },
     })
   ).uploadTracksToMyCloud;
+}
+
+/** A page of an installed extension the user may open (in a window, or a tab of its own). */
+export interface ExtensionApp {
+  extensionId: string;
+  id: string;
+  name: string;
+  description: string | null;
+  url: string;
+  iconUrl: string | null;
+  width: number | null;
+  height: number | null;
+}
+
+export async function extensionApps(): Promise<ExtensionApp[]> {
+  return (
+    await gql<{ extensionApps: ExtensionApp[] }>(
+      `query($l: String) { extensionApps(language: $l) { extensionId id name description url iconUrl width height } }`,
+      { l: language }
+    )
+  ).extensionApps;
 }

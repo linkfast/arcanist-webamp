@@ -17,7 +17,9 @@ export type WindowKind =
   | "lyrics"
   | "account"
   | "personalize"
-  | "skins";
+  | "skins"
+  /** An extension's app (props: app); one window per app. */
+  | "extensionApp";
 
 export interface DesktopWindow {
   id: string;
@@ -44,9 +46,12 @@ function emit(): void {
 }
 
 export const desktopWindows = {
-  /** Opens a window (or brings the one of that kind to the front, with the new props). */
+  /**
+   * Opens a window (or brings the one of that kind to the front, with the new props). Windows with a `key` in their
+   * props are one per key instead (extension apps).
+   */
   open(kind: WindowKind, props: Record<string, unknown> = {}): void {
-    const existing = windows.find((w) => w.kind === kind);
+    const existing = windows.find((w) => w.kind === kind && (w.props.key ?? null) === (props.key ?? null));
     if (existing) {
       windows = windows.map((w) => (w === existing ? { ...w, props, z: ++topZ } : w));
     } else {
@@ -91,6 +96,11 @@ export const desktopWindows = {
   },
 };
 
+/** Opens an extension's app in its window (one per app). */
+export function openExtensionApp(app: { extensionId: string; id: string }): void {
+  desktopWindows.open("extensionApp", { key: `${app.extensionId}/${app.id}`, app });
+}
+
 export function useDesktopWindows(): DesktopWindow[] {
   return useSyncExternalStore(
     (listener) => {
@@ -111,10 +121,12 @@ interface WindowProps {
   footer?: ReactNode;
   /** Classes of the body, which scrolls with padding unless they say otherwise. */
   bodyClassName?: string;
+  /** Buttons in the title bar, before the close button. */
+  actions?: ReactNode;
 }
 
 /** A card with a title bar to drag it by, like the panel's dialogs. */
-export function Window({ window: win, title, icon, width = 520, height = 460, children, footer, bodyClassName }: WindowProps) {
+export function Window({ window: win, title, icon, width = 520, height = 460, children, footer, bodyClassName, actions }: WindowProps) {
   const drag = useRef<{ dx: number; dy: number } | null>(null);
 
   const onPointerDown = useCallback(
@@ -163,6 +175,7 @@ export function Window({ window: win, title, icon, width = 520, height = 460, ch
       >
         {icon}
         <h2 className="flex-1 truncate text-sm font-semibold">{title}</h2>
+        {actions}
         <Button variant="ghost" size="icon-sm" aria-label={t("common.close")} onClick={() => desktopWindows.close(win.id)}>
           <X />
         </Button>

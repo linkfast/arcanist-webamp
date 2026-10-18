@@ -1,5 +1,5 @@
 import type { ReactNode } from "react";
-import { CircleUser, Disc3, FileText, History, Library, ListMusic, Paintbrush, Palette, Save, Star, Upload, Zap } from "lucide-react";
+import { CircleUser, Disc3, FileText, History, Library, ListMusic, Paintbrush, Palette, Puzzle, Save, Star, Upload, Zap } from "lucide-react";
 import { t } from "../i18n";
 import type { WindowKind } from "./windows";
 
@@ -34,4 +34,10 @@ export const KINDS: Record<WindowKind, Kind> = {
   account: { label: () => t("icon.account"), glyph: (c) => <CircleUser className={c} />, tile: "bg-zinc-700" },
   personalize: { label: () => t("icon.personalize"), glyph: (c) => <Paintbrush className={c} />, tile: "bg-indigo-700" },
   skins: { label: () => t("icon.skins"), glyph: (c) => <Palette className={c} />, tile: "bg-fuchsia-800" },
+  extensionApp: { label: () => t("icon.extension"), glyph: (c) => <Puzzle className={c} />, tile: "bg-slate-700" },
 };
+
+/** An extension app's icon (its SVG), or the puzzle piece. */
+export function AppGlyph({ iconUrl, className }: { iconUrl: string | null | undefined; className?: string }) {
+  return iconUrl ? <img src={iconUrl} alt="" className={className ?? "size-4"} draggable={false} /> : <Puzzle className={className} />;
+}

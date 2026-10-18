@@ -151,6 +151,8 @@ function UploadRow({ item }: { item: api.MyUpload }) {
   const where =
     item.kind === "ULTIMATE_CLOUD" ? t("uploads.toCloud") : item.libraryName ? t("uploads.toLibrary", { library: item.libraryName }) : null;
   const status = t(`uploads.status.${item.status}` as TextKey);
+  // Brought by an extension: named as its app is.
+  const source = item.source ? (app.extensionApps.find((a) => a.extensionId === item.source)?.name ?? t("uploads.from", { name: item.source })) : null;
   return (
     <li
       className={cn("group flex items-center gap-3 rounded-md px-2 py-1.5 select-none", track && "hover:bg-accent/50")}
@@ -173,7 +175,7 @@ function UploadRow({ item }: { item: api.MyUpload }) {
       <span className="grid min-w-0 flex-1">
         <span className="truncate text-sm">{track ? track.title : item.name}</span>
         <span className="truncate text-xs text-muted-foreground">
-          {[where, track && item.kind === "LIBRARY" ? item.name : null, item.size != null ? size(item.size) : null, when].filter(Boolean).join(" · ")}
+          {[source, where, track && item.kind === "LIBRARY" ? item.name : null, item.size != null ? size(item.size) : null, when].filter(Boolean).join(" · ")}
         </span>
         {item.status === "FAILED" && item.errorCode && (
           <span className="truncate text-xs text-[var(--destructive)]">{errorText(item.errorCode)}</span>

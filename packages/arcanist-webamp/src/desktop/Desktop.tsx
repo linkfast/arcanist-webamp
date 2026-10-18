@@ -1,6 +1,6 @@
 import { useState, type ReactNode } from "react";
 import { Code } from "lucide-react";
-import { app, useLibraries, useMyCloud } from "../app";
+import { app, useExtensionApps, useLibraries, useMyCloud } from "../app";
 import { DragGhost } from "../dnd";
 import { t } from "../i18n";
 import { useSettings, type IconSize } from "../settings";
@@ -11,10 +11,11 @@ import { LyricsWindow, MixesWindow, StarTracksWindow } from "../windows/MusicWin
 import { PersonalizeWindow } from "../windows/PersonalizeWindow";
 import { PlaylistsWindow, SavePlaylistWindow } from "../windows/PlaylistWindows";
 import { SkinsWindow } from "../windows/SkinsWindow";
+import { ExtensionAppWindow } from "../windows/ExtensionAppWindow";
 import { UploadsWindow } from "../windows/UploadsWindow";
-import { KINDS, WEBAMP_KIND } from "./kinds";
+import { AppGlyph, KINDS, WEBAMP_KIND } from "./kinds";
 import { Taskbar } from "./Taskbar";
-import { desktopWindows, useDesktopWindows, type DesktopWindow, type WindowKind } from "./windows";
+import { desktopWindows, openExtensionApp, useDesktopWindows, type DesktopWindow, type WindowKind } from "./windows";
 
 export interface DesktopIcon {
   id: string;
@@ -27,6 +28,7 @@ export interface DesktopIcon {
 /** The desktop's icons; those the user hid are still here (Personalize lists them). */
 export function useDesktopIcons(): DesktopIcon[] {
   const libraries = useLibraries();
+  const extensionApps = useExtensionApps();
   const canUpload = libraries?.some((l) => l.canUpload) ?? false;
   // Their history of uploads, when they can send something somewhere.
   useMyCloud();
@@ -47,6 +49,14 @@ export function useDesktopIcons(): DesktopIcon[] {
     kind("lyrics"),
     ...(canUpload ? [kind("upload")] : []),
     ...(hasUploads ? [kind("uploads")] : []),
+    // The apps of the server's extensions, each with its own icon.
+    ...extensionApps.map((extension) => ({
+      id: `ext:${extension.extensionId}/${extension.id}`,
+      label: extension.name,
+      glyph: <AppGlyph iconUrl={extension.iconUrl} className="size-full rounded-[inherit]" />,
+      tile: extension.iconUrl ? "overflow-hidden bg-transparent ring-0 shadow-none" : KINDS.extensionApp.tile,
+      open: () => openExtensionApp(extension),
+    })),
     kind("account"),
     kind("personalize"),
     kind("skins"),
@@ -151,5 +161,7 @@ function WindowContent({ window: win }: { window: DesktopWindow }) {
       return <PersonalizeWindow window={win} />;
     case "skins":
       return <SkinsWindow window={win} />;
+    case "extensionApp":
+      return <ExtensionAppWindow window={win} />;
   }
 }

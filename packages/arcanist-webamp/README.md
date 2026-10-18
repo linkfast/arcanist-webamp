@@ -47,7 +47,17 @@ Kept small and generic, in `packages/webamp` on this branch:
 
 ## Building
 
-From the monorepo's root, with Node 22+ and pnpm 9 (`corepack pnpm`):
+The zip, in one command (PowerShell; Docker Desktop is all it needs, `-Local` uses this machine's Node instead,
+`-Test` also runs Webamp's tests):
+
+```powershell
+pwsh packages/arcanist-webamp/scripts/pack.ps1   # release/arcanist-webamp-<version>.zip and its SHA-256
+```
+
+To put it in a Synology package with Arcanist instead of the published release, run Arcanist's
+`packaging/synology/build.ps1 -LocalWebamp` (it builds this checkout with this script).
+
+By hand, from the monorepo's root, with Node 22+ and pnpm 9 (`corepack pnpm`):
 
 ```bash
 pnpm install --filter "arcanist-webamp..."

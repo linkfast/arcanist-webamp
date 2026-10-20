@@ -156,6 +156,18 @@ export async function tracks(search: string | null, after: string | null, librar
   ).tracks;
 }
 
+/** Songs by id, in that order; those the user cannot see (or that are gone) are left out. */
+export async function tracksByIds(ids: string[]): Promise<Track[]> {
+  const found = await Promise.all(
+    ids.map((id) =>
+      gql<{ track: Track }>(`query($id: ID!) { track(id: $id) { ${TRACK} } }`, { id })
+        .then((r) => r.track)
+        .catch(() => null),
+    ),
+  );
+  return found.filter((t): t is Track => t != null);
+}
+
 export async function albumTracks(albumId: string): Promise<Track[]> {
   return (
     await gql<{ tracks: Page<Track> }>(`query($id: ID) { tracks(albumId: $id) { items { ${TRACK} } } }`, { id: albumId })
@@ -304,6 +316,34 @@ export async function starTracks(): Promise<Track[]> {
     after = page.nextCursor;
   } while (after);
   return result;
+}
+
+export interface PlayHistoryItem {
+  id: string;
+  track: Track;
+  playedAt: string;
+  playedMs: number;
+}
+
+/** What the user played, newest first. */
+export async function playHistory(after: string | null): Promise<Page<PlayHistoryItem>> {
+  const page = (
+    await gql<{ playHistory: { items: PlayHistoryItem[]; nextCursor: string | null } }>(
+      `query($a: String) { playHistory(after: $a, first: 100) { items { id playedAt playedMs track { ${TRACK} } } nextCursor } }`,
+      { a: after },
+    )
+  ).playHistory;
+  return { ...page, totalCount: 0 };
+}
+
+/** Albums the most recently added first, or at random (the same order all day for a seed). */
+export async function sortedAlbums(sort: "RECENTLY_ADDED" | "RANDOM", after: string | null, libraryId?: string | null, seed?: number): Promise<Page<Album>> {
+  return (
+    await gql<{ albums: Page<Album> }>(
+      `query($a: String, $l: ID, $s: AlbumSort, $seed: Int) { albums(after: $a, first: 60, libraryId: $l, sort: $s, seed: $seed) { items { ${ALBUM} } nextCursor totalCount } }`,
+      { a: after, l: libraryId ?? null, s: sort, seed: seed ?? null },
+    )
+  ).albums;
 }
 
 export async function mixes(): Promise<Mix[]> {

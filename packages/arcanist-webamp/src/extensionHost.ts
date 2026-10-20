@@ -2,7 +2,9 @@
 // opened here (in a window's iframe, or in a tab opened from here) ask for the session and get it, with the language
 // and the look of Arcanist's windows, again whenever the token is refreshed or the theme changes. Only windows of
 // this origin that the player opened get it.
+import { tracksByIds } from "./api/arcanist";
 import { refresh, session } from "./api/client";
+import { app } from "./app";
 import { desktopWindows } from "./desktop/windows";
 import { language } from "./i18n";
 import { isDark, settings } from "./settings";
@@ -66,7 +68,7 @@ export function startExtensionHost(): void {
   window.addEventListener("message", async (event: MessageEvent) => {
     if (event.origin !== location.origin || !event.source || !apps.has(event.source as Window)) return;
     const source = event.source as Window;
-    const message = event.data as { type?: string; target?: string; id?: string; kind?: string; text?: string } | null;
+    const message = event.data as { type?: string; target?: string; id?: string; kind?: string; text?: string; trackIds?: unknown } | null;
     switch (message?.type) {
       case "arcanist:hello":
         send(source);
@@ -80,6 +82,16 @@ export function startExtensionHost(): void {
         if (message.target === "uploads") desktopWindows.open("uploads");
         else if (message.target === "track" && message.id) desktopWindows.open("library");
         break;
+      case "arcanist:play": {
+        // Songs of the library: after what plays now, or at once when nothing does.
+        const ids = Array.isArray(message.trackIds) ? message.trackIds.filter((id): id is string => typeof id === "string").slice(0, 50) : [];
+        const tracks = await tracksByIds(ids).catch(() => []);
+        if (tracks.length === 0) return;
+        const player = app.player;
+        if (player.current()) player.append(tracks);
+        else player.play(tracks);
+        break;
+      }
       case "arcanist:notify":
         if (typeof message.text === "string") toast(message.text.slice(0, 200), message.kind === "error");
         break;

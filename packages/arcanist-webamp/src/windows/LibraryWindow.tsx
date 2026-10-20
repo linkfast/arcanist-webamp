@@ -1,16 +1,16 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
-import { ChevronLeft, ChevronRight, DiscAlbum, Disc3, House, Library, ListPlus, MicVocal, Music, Play, Search, User } from "lucide-react";
+import { ChevronLeft, ChevronRight, Compass, DiscAlbum, Disc3, History, House, Library, ListPlus, MicVocal, Music, Play, Search, Shuffle, User } from "lucide-react";
 import * as api from "../api/arcanist";
 import { app, useLibraries } from "../app";
 import { Window, desktopWindows, type DesktopWindow } from "../desktop/windows";
-import { t, type TextKey } from "../i18n";
+import { language, t, type TextKey } from "../i18n";
 import { artistMenu, playMix, run } from "../menus";
 import { settings, useSettings } from "../settings";
 import { openMenu } from "../ui/menu";
 import { Button, Input, Select, cn } from "../ui/ui";
 import { AlbumGrid, ArtistRows, Artwork, ListActions, LoadMore, Loading, MixCard, TrackList, duration, usePages, useLoad } from "./common";
 
-type Section = "home" | "artists" | "albums" | "tracks";
+type Section = "home" | "explore" | "recent" | "artists" | "albums" | "tracks";
 
 type View =
   | { kind: Section }
@@ -20,6 +20,8 @@ type View =
 
 const SECTIONS: { id: Section; label: TextKey; icon: ReactNode }[] = [
   { id: "home", label: "library.home", icon: <House /> },
+  { id: "explore", label: "library.explore", icon: <Compass /> },
+  { id: "recent", label: "library.recent", icon: <History /> },
   { id: "artists", label: "library.artists", icon: <MicVocal /> },
   { id: "albums", label: "library.albums", icon: <DiscAlbum /> },
   { id: "tracks", label: "library.tracks", icon: <Music /> },
@@ -217,6 +219,8 @@ export function LibraryWindow({ window: win }: { window: DesktopWindow }) {
             </div>
             <div key={`${history.index}-${libraryId}`} className="min-h-0 flex-1 overflow-auto p-4">
               {view.kind === "home" && <HomeView {...nav} />}
+              {view.kind === "explore" && <ExploreView libraryId={libraryId} {...nav} />}
+              {view.kind === "recent" && <RecentView libraryId={libraryId} {...nav} />}
               {view.kind === "artists" && <ArtistsView libraryId={libraryId} {...nav} />}
               {view.kind === "albums" && <AlbumsView libraryId={libraryId} {...nav} />}
               {view.kind === "tracks" && <TracksView libraryId={libraryId} />}
@@ -280,6 +284,164 @@ function HomeView({ onAlbum }: Nav) {
           {section.playlists.length > 0 && <PlaylistRow playlists={section.playlists} />}
         </section>
       ))}
+    </div>
+  );
+}
+
+/** Two or more choices in a row, like tabs. */
+function Choice<T extends string>({ value, options, onChange }: { value: T; options: { id: T; label: string }[]; onChange: (value: T) => void }) {
+  return (
+    <div role="tablist" className="inline-flex w-fit rounded-md bg-muted p-0.5">
+      {options.map((o) => (
+        <button
+          key={o.id}
+          role="tab"
+          aria-selected={value === o.id}
+          className={cn(
+            "rounded px-3 py-1 text-sm outline-none focus-visible:ring-2 focus-visible:ring-[var(--ring)]",
+            value === o.id ? "bg-[var(--background)] font-medium shadow-sm" : "text-muted-foreground hover:text-[var(--foreground)]",
+          )}
+          onClick={() => onChange(o.id)}
+        >
+          {o.label}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+const RECENT_TAB = "arcanist.library.recent";
+
+/** What the user played lately (by day) and the albums added lately. */
+function RecentView({ libraryId, onAlbum }: Nav & { libraryId: string | null }) {
+  const [tab, setTab] = useState<"played" | "added">(() => {
+    try {
+      return localStorage.getItem(RECENT_TAB) === "added" ? "added" : "played";
+    } catch {
+      return "played";
+    }
+  });
+  const choose = (next: "played" | "added") => {
+    setTab(next);
+    try {
+      localStorage.setItem(RECENT_TAB, next);
+    } catch {
+      // Only a convenience.
+    }
+  };
+  return (
+    <div className="grid gap-4">
+      <Choice
+        value={tab}
+        onChange={choose}
+        options={[
+          { id: "played", label: t("recent.played") },
+          { id: "added", label: t("recent.added") },
+        ]}
+      />
+      {tab === "played" ? <PlayedView libraryId={libraryId} /> : <AddedView libraryId={libraryId} onAlbum={onAlbum} />}
+    </div>
+  );
+}
+
+function dayOf(date: Date): string {
+  return `${date.getFullYear()}-${date.getMonth()}-${date.getDate()}`;
+}
+
+function dayLabel(date: Date): string {
+  const today = new Date();
+  const yesterday = new Date(today.getFullYear(), today.getMonth(), today.getDate() - 1);
+  if (dayOf(date) === dayOf(today)) return t("recent.today");
+  if (dayOf(date) === dayOf(yesterday)) return t("recent.yesterday");
+  return date.toLocaleDateString(language, {
+    weekday: "long",
+    day: "numeric",
+    month: "long",
+    year: date.getFullYear() === today.getFullYear() ? undefined : "numeric",
+  });
+}
+
+function PlayedView({ libraryId }: { libraryId: string | null }) {
+  const pages = usePages((after) => api.playHistory(after), []);
+  // The history is the user's across libraries: with one chosen, only its songs.
+  const items = libraryId ? pages.items.filter((i) => i.track.libraryIds?.includes(libraryId) ?? true) : pages.items;
+  const days: { key: string; label: string; tracks: api.Track[] }[] = [];
+  for (const item of items) {
+    const date = new Date(item.playedAt);
+    const key = dayOf(date);
+    if (days.at(-1)?.key !== key) days.push({ key, label: dayLabel(date), tracks: [] });
+    days.at(-1)!.tracks.push(item.track);
+  }
+  return (
+    <div className="grid gap-5">
+      {days.length === 0 && !pages.loading && !pages.error && <p className="py-6 text-center text-sm text-muted-foreground">{t("recent.empty")}</p>}
+      {days.map((day) => (
+        <section key={day.key} className="grid gap-2">
+          <Heading actions={<ListActions tracks={day.tracks} />}>{day.label}</Heading>
+          <TrackList tracks={day.tracks} />
+        </section>
+      ))}
+      <Loading error={pages.error} loading={pages.loading} />
+      <LoadMore onMore={pages.more} loading={pages.loading} />
+    </div>
+  );
+}
+
+function AddedView({ libraryId, onAlbum }: { libraryId: string | null; onAlbum: Nav["onAlbum"] }) {
+  const pages = usePages((after) => api.sortedAlbums("RECENTLY_ADDED", after, libraryId), [libraryId]);
+  return (
+    <div className="grid gap-3">
+      {(pages.items.length > 0 || (!pages.loading && !pages.error)) && <AlbumGrid albums={pages.items} onAlbum={onAlbum} />}
+      <Loading error={pages.error} loading={pages.loading} />
+      <LoadMore onMore={pages.more} loading={pages.loading} />
+    </div>
+  );
+}
+
+const MIX_GROUPS: { label: TextKey; kinds: api.Mix["kind"][] }[] = [
+  { label: "explore.forYou", kinds: ["FAVORITES", "DISCOVERY"] },
+  { label: "explore.genres", kinds: ["GENRE"] },
+  { label: "explore.decades", kinds: ["DECADE"] },
+  { label: "explore.artists", kinds: ["ARTIST"] },
+];
+
+/** Something new to listen to: the user's mixes by kind, and albums at random. */
+function ExploreView({ libraryId, onAlbum }: Nav & { libraryId: string | null }) {
+  const mixes = useLoad(() => api.mixes(), []);
+  const [seed, setSeed] = useState(0);
+  const random = useLoad(() => api.sortedAlbums("RANDOM", null, libraryId, seed), [libraryId, seed]);
+  return (
+    <div className="grid gap-6">
+      {mixes.data == null && <Loading error={mixes.error} loading={mixes.loading} />}
+      {mixes.data?.length === 0 && <p className="text-sm text-muted-foreground">{t("explore.noMixes")}</p>}
+      {MIX_GROUPS.map((group) => {
+        const list = (mixes.data ?? []).filter((m) => group.kinds.includes(m.kind));
+        if (list.length === 0) return null;
+        return (
+          <section key={group.label} className="grid gap-2">
+            <Heading>{t(group.label)}</Heading>
+            <ul className="flex gap-2 overflow-x-auto pb-2">
+              {list.map((mix) => (
+                <li key={mix.id} className="w-40 shrink-0">
+                  <MixCard mix={mix} />
+                </li>
+              ))}
+            </ul>
+          </section>
+        );
+      })}
+      <section className="grid gap-2">
+        <Heading
+          actions={
+            <Button size="sm" variant="outline" disabled={random.loading} onClick={() => setSeed((s) => s + 1)}>
+              <Shuffle /> {t("explore.shuffle")}
+            </Button>
+          }
+        >
+          {t("explore.randomAlbums")}
+        </Heading>
+        {random.data ? <AlbumGrid albums={random.data.items.slice(0, 24)} onAlbum={onAlbum} /> : <Loading error={random.error} loading={random.loading} />}
+      </section>
     </div>
   );
 }

@@ -318,6 +318,44 @@ export async function starTracks(): Promise<Track[]> {
   return result;
 }
 
+export interface Wish {
+  id: string;
+  title: string;
+  artist: string;
+  album: string | null;
+  note: string | null;
+  status: "WANTED" | "OBTAINED";
+  createdAt: string;
+  obtainedAt: string | null;
+  foundWhenAdded: boolean;
+  seen: boolean;
+  track: Track | null;
+}
+
+const WISH = `id title artist album note status createdAt obtainedAt foundWhenAdded seen track { ${TRACK} }`;
+
+/** The user's wish list (wanted first), with how many arrived that they have not seen. */
+export async function wishList(status?: "WANTED" | "OBTAINED"): Promise<{ items: Wish[]; wanted: number; unseen: number }> {
+  return (
+    await gql<{ wishList: { items: Wish[]; wanted: number; unseen: number } }>(
+      `query($s: WishStatus) { wishList(status: $s) { wanted unseen items { ${WISH} } } }`,
+      { s: status ?? null },
+    )
+  ).wishList;
+}
+
+export async function addWish(input: { title: string; artist: string; album: string | null }): Promise<Wish> {
+  return (await gql<{ addWish: Wish }>(`mutation($i: WishInput!) { addWish(input: $i) { ${WISH} } }`, { i: input })).addWish;
+}
+
+export async function removeWish(id: string): Promise<void> {
+  await gql(`mutation($id: ID!) { removeWish(id: $id) }`, { id });
+}
+
+export async function markWishesSeen(): Promise<void> {
+  await gql(`mutation { markWishesSeen }`);
+}
+
 export interface PlayHistoryItem {
   id: string;
   track: Track;

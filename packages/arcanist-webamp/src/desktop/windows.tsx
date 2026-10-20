@@ -18,6 +18,7 @@ export type WindowKind =
   | "account"
   | "personalize"
   | "skins"
+  | "wishes"
   /** An extension's app (props: app); one window per app. */
   | "extensionApp";
 

@@ -6,6 +6,7 @@ import { t } from "./i18n";
 import { songMenu } from "./menus";
 import { ArcanistPlayer } from "./player/player";
 import { settings } from "./settings";
+import { startWishWatcher } from "./wishes";
 
 // What the whole player shares: the Webamp instance, the server, and the user's playlists (for the menus, which
 // are built synchronously).
@@ -136,6 +137,7 @@ export const app = {
             { label: t("menu.saveAsPlaylist"), onClick: () => saveCurrentList() },
             { label: t("menu.starTracks"), onClick: () => desktopWindows.open("starTracks") },
             { label: t("menu.mixes"), onClick: () => desktopWindows.open("mixes") },
+            ...(app.server?.features.includes("WISH_LIST") ? [{ label: t("menu.wishes"), onClick: () => desktopWindows.open("wishes") }] : []),
             { label: t("menu.lyrics"), onClick: () => desktopWindows.open("lyrics") },
             { label: t("menu.upload"), onClick: () => desktopWindows.open("upload") },
             ...(app.hasUploadHistory ? [{ label: t("menu.uploads"), onClick: () => desktopWindows.open("uploads") }] : []),
@@ -164,6 +166,7 @@ export const app = {
     });
     void app.loadMyCloud();
     void app.loadExtensionApps();
+    if (server) startWishWatcher(server.features);
     return player;
   },
 };

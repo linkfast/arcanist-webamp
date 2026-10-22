@@ -330,21 +330,77 @@ export interface Wish {
   foundWhenAdded: boolean;
   seen: boolean;
   track: Track | null;
+  musicBrainzRecordingId: string | null;
+  /** The streaming service's page it was added from. */
+  sourceUrl: string | null;
+  sourceService: WishLinkService | null;
+  artworkId: string | null;
+  /** Who wants it, in everyone's list. */
+  owner: { id: string; userName: string; displayName: string | null } | null;
 }
 
-const WISH = `id title artist album note status createdAt obtainedAt foundWhenAdded seen track { ${TRACK} }`;
+export type WishLinkService =
+  | "SPOTIFY"
+  | "YOU_TUBE_MUSIC"
+  | "YOU_TUBE"
+  | "DEEZER"
+  | "APPLE_MUSIC"
+  | "MUSIC_BRAINZ"
+  | "TIDAL"
+  | "SOUND_CLOUD"
+  | "BANDCAMP"
+  | "AMAZON_MUSIC"
+  | "OTHER";
 
-/** The user's wish list (wanted first), with how many arrived that they have not seen. */
-export async function wishList(status?: "WANTED" | "OBTAINED"): Promise<{ items: Wish[]; wanted: number; unseen: number }> {
+/** What a song's link says, to fill a wish (resolveWishLink). */
+export interface WishLinkPreview {
+  service: WishLinkService;
+  url: string;
+  title: string;
+  artist: string;
+  album: string | null;
+  durationMs: number | null;
+  musicBrainzRecordingId: string | null;
+  artworkId: string | null;
+}
+
+export interface WishInput {
+  title: string;
+  artist: string;
+  album: string | null;
+  durationMs?: number | null;
+  musicBrainzRecordingId?: string | null;
+  sourceUrl?: string | null;
+  artworkId?: string | null;
+}
+
+const WISH = `id title artist album note status createdAt obtainedAt foundWhenAdded seen musicBrainzRecordingId sourceUrl sourceService artworkId
+  owner { id userName displayName } track { ${TRACK} }`;
+
+/** The user's wish list (wanted first), with how many arrived that they have not seen; with "ALL", everyone's. */
+export async function wishList(
+  status?: "WANTED" | "OBTAINED",
+  scope: "MINE" | "ALL" = "MINE",
+): Promise<{ items: Wish[]; wanted: number; unseen: number }> {
   return (
     await gql<{ wishList: { items: Wish[]; wanted: number; unseen: number } }>(
-      `query($s: WishStatus) { wishList(status: $s) { wanted unseen items { ${WISH} } } }`,
-      { s: status ?? null },
+      `query($s: WishStatus, $scope: WishListScope) { wishList(status: $s, scope: $scope) { wanted unseen items { ${WISH} } } }`,
+      { s: status ?? null, scope },
     )
   ).wishList;
 }
 
-export async function addWish(input: { title: string; artist: string; album: string | null }): Promise<Wish> {
+/** Reads a song's link from a streaming service (Spotify, YouTube Music, Deezer…): title, artist, album and cover. */
+export async function resolveWishLink(url: string): Promise<WishLinkPreview> {
+  return (
+    await gql<{ resolveWishLink: WishLinkPreview }>(
+      `mutation($i: ResolveWishLinkInput!) { resolveWishLink(input: $i) { service url title artist album durationMs musicBrainzRecordingId artworkId } }`,
+      { i: { url } },
+    )
+  ).resolveWishLink;
+}
+
+export async function addWish(input: WishInput): Promise<Wish> {
   return (await gql<{ addWish: Wish }>(`mutation($i: WishInput!) { addWish(input: $i) { ${WISH} } }`, { i: input })).addWish;
 }
 

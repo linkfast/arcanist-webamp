@@ -421,7 +421,7 @@ export interface UploadResult {
 export function upload(libraryId: string, file: File, token: string, onProgress: (sent: number) => void): Promise<UploadResult> {
   return new Promise((resolve, reject) => {
     const request = new XMLHttpRequest();
-    request.open("POST", `/rest/v1/libraries/${libraryId}/uploads?fileName=${encodeURIComponent(file.name)}`);
+    request.open("POST", `/rest/v1/libraries/${libraryId}/uploads?fileName=${encodeURIComponent(file.name)}&client=WEB`);
     request.setRequestHeader("Authorization", `Bearer ${token}`);
     request.setRequestHeader("Content-Type", "application/octet-stream");
     request.upload.onprogress = (e) => onProgress(e.loaded);

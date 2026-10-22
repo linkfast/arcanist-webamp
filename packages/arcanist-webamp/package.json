@@ -1,6 +1,6 @@
 {
   "name": "arcanist-webamp",
-  "version": "0.5.0-alpha.1",
+  "version": "0.6.0-alpha.1",
   "private": true,
   "description": "Webamp for Arcanist: the Winamp 2 player, playing an Arcanist server's music.",
   "license": "AGPL-3.0-or-later",

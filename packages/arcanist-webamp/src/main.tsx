@@ -12,19 +12,29 @@ import { settings } from "./settings";
 import { startAura } from "./player/aura";
 import { skinFile } from "./skins";
 import { MenuHost } from "./ui/menu";
+import { LegalTerms, TermsGate, loadTerms, termsAccepted } from "./Terms";
 import { Button, Input, Spinner, Toaster } from "./ui/ui";
 
-type Stage = "loading" | "setup" | "login" | "ready" | "error";
+type Stage = "loading" | "setup" | "login" | "terms" | "ready" | "error";
 
 let webampRendered = false;
 
 function Root() {
   const [stage, setStage] = useState<Stage>("loading");
+  const [terms, setTerms] = useState<LegalTerms | null>(null);
   const host = useRef<HTMLDivElement>(null);
   // The player exists before the desktop renders (its taskbar follows Webamp); Webamp itself renders after.
-  const ready = () => {
+  const start = () => {
     app.start();
     setStage("ready");
+  };
+  // Signed in: the terms first, until this browser accepted their version (servers without them go straight on).
+  const ready = async () => {
+    const current = await loadTerms();
+    if (current && !termsAccepted(current)) {
+      setTerms(current);
+      setStage("terms");
+    } else start();
   };
 
   useEffect(() => {
@@ -33,7 +43,7 @@ function Root() {
         const info = await serverInfo();
         app.setServer(info);
         if (!info.setupCompleted) return setStage("setup");
-        if (await refresh()) ready();
+        if (await refresh()) await ready();
         else setStage("login");
       } catch {
         setStage("error");
@@ -66,7 +76,8 @@ function Root() {
       <DesktopBackground />
       <div ref={host} className="absolute inset-x-0 top-0" style={{ pointerEvents: "none", bottom: "var(--taskbar-height)" }} />
       {stage === "ready" && <Desktop />}
-      {stage === "login" && <Login onDone={ready} />}
+      {stage === "login" && <Login onDone={() => void ready()} />}
+      {stage === "terms" && terms && <TermsGate terms={terms} onAccepted={start} />}
       {(stage === "loading" || stage === "setup" || stage === "error") && (
         <div className="ui absolute inset-0 grid place-items-center">
           <div className="grid justify-items-center gap-3 rounded-xl border bg-[var(--card)] p-6 text-sm shadow-xl">

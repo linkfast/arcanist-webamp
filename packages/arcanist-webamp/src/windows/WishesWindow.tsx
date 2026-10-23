@@ -75,7 +75,30 @@ export function WishesWindow({ window: win }: { window: DesktopWindow }) {
   const [album, setAlbum] = useState("");
   const [busy, setBusy] = useState(false);
   const [problem, setProblem] = useState<string | null>(null);
+  /** Where it goes when uploaded for the wish ("" = automatic), and the choices. */
+  const [target, setTarget] = useState("");
+  const [targets, setTargets] = useState<api.Library[]>([]);
+  const [allLibraries, setAllLibraries] = useState<api.Library[]>([]);
+  const [automatic, setAutomatic] = useState<string | null>(null);
+  /** A wish just added that a library had already: shown with where it is. */
+  const [found, setFound] = useState<api.Wish | null>(null);
   const mine = scope === "MINE";
+
+  useEffect(() => {
+    void Promise.all([api.libraries(), api.uploadSettings()])
+      .then(([libraries, settings]) => {
+        setAllLibraries(libraries);
+        setTargets(libraries.filter((l) => l.canUpload));
+        setAutomatic(settings.defaultLibraryName);
+      })
+      .catch(() => {});
+  }, []);
+
+  const libraryNames = (ids: string[]) =>
+    ids.map((id) => allLibraries.find((l) => l.id === id)?.name).filter(Boolean).join(", ");
+  const quality = (file: NonNullable<api.Wish["track"]>["files"][number]) =>
+    [file.format, file.bitDepth ? `${file.bitDepth} bit` : null, file.sampleRate ? `${file.sampleRate / 1000} kHz` : null,
+      file.bitDepth ? null : file.bitRate ? `${file.bitRate} kbit/s` : null].filter(Boolean).join(" · ");
 
   useEffect(() => {
     if (!data) return;
@@ -120,13 +143,15 @@ export function WishesWindow({ window: win }: { window: DesktopWindow }) {
         musicBrainzRecordingId: preview?.musicBrainzRecordingId ?? null,
         sourceUrl: preview?.url ?? null,
         artworkId: preview?.artworkId ?? null,
+        targetLibraryId: target || null,
       });
       setItems((list) => [wish, ...list]);
       setTitle("");
       setArtist("");
       setAlbum("");
       clearLink();
-      setProblem(wish.status === "OBTAINED" ? t("wishes.alreadyThere") : null);
+      if (wish.status === "OBTAINED" && wish.track) setFound(wish);
+      else setProblem(wish.status === "OBTAINED" ? t("wishes.alreadyThere") : null);
     } catch (e) {
       fail(e);
     } finally {
@@ -145,7 +170,7 @@ export function WishesWindow({ window: win }: { window: DesktopWindow }) {
 
   const wanted = items.filter((w) => w.status === "WANTED");
   const obtained = items.filter((w) => w.status === "OBTAINED");
-  const tracks = obtained.map((w) => w.track).filter((x): x is api.Track => x != null);
+  const tracks: api.Track[] = obtained.flatMap((w) => (w.track ? [w.track] : []));
   const owner = (wish: api.Wish) =>
     wish.owner ? t("wishes.wantedBy", { name: wish.owner.displayName || wish.owner.userName }) : null;
 
@@ -215,10 +240,44 @@ export function WishesWindow({ window: win }: { window: DesktopWindow }) {
               <Button type="submit" size="sm" className="h-9" disabled={busy || !title.trim() || !artist.trim()}>
                 <Plus /> {t("wishes.add")}
               </Button>
+              {targets.length > 0 && (
+                <label className="flex items-center gap-2 text-xs text-muted-foreground sm:col-span-4">
+                  {t("wishes.target")}
+                  <select
+                    className="h-8 rounded-md border bg-background px-2 text-xs text-foreground"
+                    value={target}
+                    onChange={(e) => setTarget(e.target.value)}
+                  >
+                    <option value="">{automatic ? t("wishes.targetAutomaticNamed", { library: automatic }) : t("wishes.targetAutomatic")}</option>
+                    {targets.map((library) => (
+                      <option key={library.id} value={library.id}>
+                        {library.name}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              )}
             </form>
           </div>
         )}
         {problem && <p className="text-sm text-muted-foreground">{problem}</p>}
+        {found?.track && (
+          <div className="grid gap-1 rounded-md border bg-muted/40 p-3 text-sm">
+            <div className="flex items-center justify-between gap-2">
+              <span className="font-medium">{t("wishes.foundTitle")}</span>
+              <Button variant="ghost" size="icon-sm" title={t("wishes.clearLink")} aria-label={t("wishes.clearLink")} onClick={() => setFound(null)}>
+                <X />
+              </Button>
+            </div>
+            <span>
+              {found.track.title} · {found.track.artists.map((a) => a.name).join(", ")} · {found.track.album.title}
+            </span>
+            <span className="text-xs text-muted-foreground">
+              {t("wishes.where", { libraries: libraryNames(found.track.libraryIds) })}
+              {found.track.files[0] && ` · ${quality(found.track.files[0])}`}
+            </span>
+          </div>
+        )}
         {!data && <Loading error={error} loading={loading} />}
 
         {data && (
@@ -238,6 +297,9 @@ export function WishesWindow({ window: win }: { window: DesktopWindow }) {
                       {wish.album && <span className="text-muted-foreground"> · {wish.album}</span>}
                     </span>
                     {owner(wish) && <span className="text-xs text-muted-foreground">{owner(wish)}</span>}
+                    {wish.targetLibraryId && (
+                      <span className="text-xs text-muted-foreground">{t("wishes.goesTo", { library: libraryNames([wish.targetLibraryId]) })}</span>
+                    )}
                     <WishLinks wish={wish} />
                   </span>
                   {mine && (

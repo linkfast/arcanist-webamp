@@ -329,7 +329,10 @@ export interface Wish {
   obtainedAt: string | null;
   foundWhenAdded: boolean;
   seen: boolean;
-  track: Track | null;
+  /** The song that fulfils it, with its copies' quality. */
+  track:
+    | (Track & { files: { format: string | null; bitRate: number | null; sampleRate: number | null; bitDepth: number | null }[] })
+    | null;
   musicBrainzRecordingId: string | null;
   /** The streaming service's page it was added from. */
   sourceUrl: string | null;
@@ -337,6 +340,8 @@ export interface Wish {
   artworkId: string | null;
   /** Who wants it, in everyone's list. */
   owner: { id: string; userName: string; displayName: string | null } | null;
+  /** Where it goes when uploaded for this wish; null follows the server's rule. */
+  targetLibraryId: string | null;
 }
 
 export type WishLinkService =
@@ -372,10 +377,23 @@ export interface WishInput {
   musicBrainzRecordingId?: string | null;
   sourceUrl?: string | null;
   artworkId?: string | null;
+  targetLibraryId?: string | null;
 }
 
 const WISH = `id title artist album note status createdAt obtainedAt foundWhenAdded seen musicBrainzRecordingId sourceUrl sourceService artworkId
-  owner { id userName displayName } track { ${TRACK} }`;
+  targetLibraryId owner { id userName displayName } track { ${TRACK} files { format bitRate sampleRate bitDepth } }`;
+
+/** Where uploads that name no library go (and wishes set to automatic), if the server has such a library. */
+export async function uploadSettings(): Promise<{ defaultLibraryId: string | null; defaultLibraryName: string | null }> {
+  try {
+    return (await gql<{ uploadSettings: { defaultLibraryId: string | null; defaultLibraryName: string | null } }>(
+      `query { uploadSettings { defaultLibraryId defaultLibraryName } }`,
+    )).uploadSettings;
+  } catch {
+    // Older servers: no default.
+    return { defaultLibraryId: null, defaultLibraryName: null };
+  }
+}
 
 /** The user's wish list (wanted first), with how many arrived that they have not seen; with "ALL", everyone's. */
 export async function wishList(

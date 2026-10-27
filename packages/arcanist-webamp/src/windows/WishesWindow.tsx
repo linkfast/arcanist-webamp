@@ -2,9 +2,10 @@ import { useEffect, useState } from "react";
 import { ExternalLink, Gift, Link2, Plus, Trash2, X } from "lucide-react";
 import * as api from "../api/arcanist";
 import { artworkUrl, session } from "../api/client";
+import { app } from "../app";
 import { Window, type DesktopWindow } from "../desktop/windows";
 import { errorText, t } from "../i18n";
-import { Button, Input, cn } from "../ui/ui";
+import { Button, Checkbox, Input, cn } from "../ui/ui";
 import { Loading, TrackList, useLoad } from "./common";
 
 /** The services' own names (brands are not translated). */
@@ -77,6 +78,8 @@ export function WishesWindow({ window: win }: { window: DesktopWindow }) {
   const [problem, setProblem] = useState<string | null>(null);
   /** Where it goes when uploaded for the wish ("" = automatic), and the choices. */
   const [target, setTarget] = useState("");
+  const [wantsVideo, setWantsVideo] = useState(false);
+  const videos = app.server?.features.includes("MUSIC_VIDEOS") ?? false;
   const [targets, setTargets] = useState<api.Library[]>([]);
   const [allLibraries, setAllLibraries] = useState<api.Library[]>([]);
   const [automatic, setAutomatic] = useState<string | null>(null);
@@ -144,7 +147,9 @@ export function WishesWindow({ window: win }: { window: DesktopWindow }) {
         sourceUrl: preview?.url ?? null,
         artworkId: preview?.artworkId ?? null,
         targetLibraryId: target || null,
+        ...(videos ? { wantsVideo } : {}),
       });
+      setWantsVideo(false);
       setItems((list) => [wish, ...list]);
       setTitle("");
       setArtist("");
@@ -240,6 +245,11 @@ export function WishesWindow({ window: win }: { window: DesktopWindow }) {
               <Button type="submit" size="sm" className="h-9" disabled={busy || !title.trim() || !artist.trim()}>
                 <Plus /> {t("wishes.add")}
               </Button>
+              {videos && (
+                <div className="text-xs sm:col-span-4">
+                  <Checkbox checked={wantsVideo} onChange={setWantsVideo} label={t("wishes.wantsVideo")} />
+                </div>
+              )}
               {targets.length > 0 && (
                 <label className="flex items-center gap-2 text-xs text-muted-foreground sm:col-span-4">
                   {t("wishes.target")}
@@ -317,6 +327,17 @@ export function WishesWindow({ window: win }: { window: DesktopWindow }) {
           <section className="grid gap-2">
             <h3 className="text-xs font-semibold tracking-wide text-muted-foreground uppercase">{t("wishes.obtained")}</h3>
             {mine && tracks.length > 0 && <TrackList tracks={tracks} />}
+            {obtained.some((w) => w.wantsVideo) && (
+              <ul className="grid gap-0.5 text-xs">
+                {obtained
+                  .filter((w) => w.wantsVideo)
+                  .map((wish) => (
+                    <li key={wish.id} className="px-2 text-muted-foreground">
+                      {wish.title} · {t(wish.videoObtainedAt ? "wishes.videoArrived" : "wishes.videoMissing")}
+                    </li>
+                  ))}
+              </ul>
+            )}
             <ul className="grid gap-1">
               {obtained
                 .filter((w) => !mine || !w.track)

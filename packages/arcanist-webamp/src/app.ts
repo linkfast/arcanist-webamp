@@ -48,6 +48,7 @@ export const app = {
   setServer(info: api.ServerInfo): void {
     server = info;
     api.setUploadSource(info.features.includes("EXTENSION_APPS"));
+    api.enableMusicVideos(info.features.includes("MUSIC_VIDEOS"));
   },
   /** The apps of the server's extensions the user may open (loaded once). */
   get extensionApps(): api.ExtensionApp[] {

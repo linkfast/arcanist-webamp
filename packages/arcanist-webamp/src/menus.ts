@@ -1,9 +1,10 @@
-import { CloudUpload, Disc3, ListPlus, Play } from "lucide-react";
+import { Clapperboard, CloudUpload, Disc3, ListPlus, Play, Puzzle } from "lucide-react";
 import { createElement } from "react";
 import * as api from "./api/arcanist";
 import { absolute, session } from "./api/client";
 import { app } from "./app";
-import { desktopWindows } from "./desktop/windows";
+import { desktopWindows, openExtensionApp } from "./desktop/windows";
+import { openVideo } from "./windows/VideoWindows";
 import { errorText, t } from "./i18n";
 import type { MenuItem } from "./ui/menu";
 import { toast } from "./ui/ui";
@@ -141,6 +142,20 @@ export function songMenu(tracks: api.Track[], options: SongMenuOptions = {}): Me
     const artist = one.artists.find((a) => a.role !== "FEATURED") ?? one.artists[0];
     if (artist) items.push({ label: t("menu.artist"), onClick: () => desktopWindows.open("library", { artistId: artist.artistId, artistName: artist.name }) });
     items.push({ label: t("menu.lyrics"), disabled: !one.hasLyrics, onClick: () => desktopWindows.open("lyrics", { trackId: one.id }) });
+    // Its music videos, and what extensions offer on a song (looking for its video, say).
+    const videos = one.videos ?? [];
+    for (const clip of videos)
+      items.push({ label: videos.length > 1 ? `${t("menu.video")}: ${clip.title}` : t("menu.video"), icon: icon(Clapperboard), onClick: () => openVideo(clip) });
+    for (const extension of app.extensionApps) {
+      for (const action of extension.trackActions ?? []) {
+        if (action.withoutVideoOnly && videos.length) continue;
+        items.push({
+          label: action.name,
+          icon: icon(Puzzle),
+          onClick: () => openExtensionApp({ ...extension, url: action.url.replaceAll("{trackId}", one.id) }),
+        });
+      }
+    }
     if (session.can("DOWNLOAD"))
       items.push({
         label: t("menu.download"),

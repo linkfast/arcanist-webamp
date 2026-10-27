@@ -1,5 +1,5 @@
 import type { ReactNode } from "react";
-import { CircleUser, Disc3, FileText, Gift, History, Library, ListMusic, Paintbrush, Palette, Puzzle, Save, Star, Upload, Zap } from "lucide-react";
+import { CircleUser, Clapperboard, Disc3, FileText, Gift, History, Library, ListMusic, Paintbrush, Palette, Puzzle, Save, Star, Upload, Zap } from "lucide-react";
 import { t } from "../i18n";
 import type { WindowKind } from "./windows";
 
@@ -35,6 +35,8 @@ export const KINDS: Record<WindowKind, Kind> = {
   personalize: { label: () => t("icon.personalize"), glyph: (c) => <Paintbrush className={c} />, tile: "bg-indigo-700" },
   skins: { label: () => t("icon.skins"), glyph: (c) => <Palette className={c} />, tile: "bg-fuchsia-800" },
   wishes: { label: () => t("icon.wishes"), glyph: (c) => <Gift className={c} />, tile: "bg-pink-700" },
+  videos: { label: () => t("icon.videos"), glyph: (c) => <Clapperboard className={c} />, tile: "bg-red-700" },
+  video: { label: () => t("icon.videos"), glyph: (c) => <Clapperboard className={c} />, tile: "bg-red-700" },
   extensionApp: { label: () => t("icon.extension"), glyph: (c) => <Puzzle className={c} />, tile: "bg-slate-700" },
 };
 

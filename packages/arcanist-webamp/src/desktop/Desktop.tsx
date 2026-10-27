@@ -13,6 +13,7 @@ import { PlaylistsWindow, SavePlaylistWindow } from "../windows/PlaylistWindows"
 import { SkinsWindow } from "../windows/SkinsWindow";
 import { ExtensionAppWindow } from "../windows/ExtensionAppWindow";
 import { UploadsWindow } from "../windows/UploadsWindow";
+import { VideosWindow, VideoWindow } from "../windows/VideoWindows";
 import { WishesWindow } from "../windows/WishesWindow";
 import { AppGlyph, KINDS, WEBAMP_KIND } from "./kinds";
 import { Taskbar } from "./Taskbar";
@@ -51,6 +52,7 @@ export function useDesktopIcons(): DesktopIcon[] {
     ...(canUpload ? [kind("upload")] : []),
     ...(hasUploads ? [kind("uploads")] : []),
     ...(app.server?.features.includes("WISH_LIST") ? [kind("wishes")] : []),
+    ...(app.server?.features.includes("MUSIC_VIDEOS") ? [kind("videos")] : []),
     // The apps of the server's extensions, each with its own icon.
     ...extensionApps.map((extension) => ({
       id: `ext:${extension.extensionId}/${extension.id}`,
@@ -167,5 +169,9 @@ function WindowContent({ window: win }: { window: DesktopWindow }) {
       return <ExtensionAppWindow window={win} />;
     case "wishes":
       return <WishesWindow window={win} />;
+    case "videos":
+      return <VideosWindow window={win} />;
+    case "video":
+      return <VideoWindow window={win} />;
   }
 }

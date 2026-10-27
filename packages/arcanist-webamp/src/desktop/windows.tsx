@@ -19,6 +19,9 @@ export type WindowKind =
   | "personalize"
   | "skins"
   | "wishes"
+  | "videos"
+  /** A music video (props: clip); one window per video. */
+  | "video"
   /** An extension's app (props: app); one window per app. */
   | "extensionApp";
 
@@ -98,7 +101,7 @@ export const desktopWindows = {
 };
 
 /** Opens an extension's app in its window (one per app). */
-export function openExtensionApp(app: { extensionId: string; id: string }): void {
+export function openExtensionApp(app: { extensionId: string; id: string; url?: string }): void {
   desktopWindows.open("extensionApp", { key: `${app.extensionId}/${app.id}`, app });
 }
 

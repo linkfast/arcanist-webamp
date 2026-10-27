@@ -18,6 +18,30 @@ export interface Track {
   rating: number | null;
   /** The libraries with a copy the user can play. */
   libraryIds: string[];
+  /** Its music videos (servers with MUSIC_VIDEOS). */
+  videos?: VideoClip[];
+}
+
+/** Whose audio plays with a music video: the song's from the library where it matches, or the video's own. */
+export type VideoAudioMode = "TRACK" | "VIDEO";
+
+/** A music video, with its stream URLs (both audios share the timeline, so switching keeps the position). */
+export interface VideoClip {
+  id: string;
+  title: string;
+  artist: string | null;
+  durationMs: number;
+  width: number | null;
+  height: number | null;
+  isLive: boolean;
+  artworkId: string | null;
+  trackId: string | null;
+  sync: "READY" | "NO_MATCH" | "PENDING" | "UNAVAILABLE";
+  audioMode: VideoAudioMode;
+  streamUrl: string;
+  trackAudioUrl: string;
+  videoAudioUrl: string;
+  hlsUrl: string | null;
 }
 
 export interface Album {
@@ -118,8 +142,16 @@ export interface Lyrics {
   instrumental: boolean;
 }
 
-const TRACK = `id title album { id title } artists { artistId name role } discNumber trackNumber durationMs artworkId
+const VIDEO = `id title artist durationMs width height isLive artworkId trackId sync audioMode streamUrl trackAudioUrl videoAudioUrl hlsUrl`;
+const TRACK_BASE = `id title album { id title } artists { artistId name role } discNumber trackNumber durationMs artworkId
   hasLyrics streamUrl starred rating libraryIds`;
+/** A track's fields: with its music videos once the server is known to have them. */
+let TRACK = TRACK_BASE;
+
+/** Asks for tracks' music videos from now on (the server has MUSIC_VIDEOS). */
+export function enableMusicVideos(on: boolean): void {
+  TRACK = on ? ` videos {  }` : TRACK_BASE;
+}
 const ALBUM = `id title year artworkId trackCount artist { id name }`;
 const PLAYLIST = `id name description isPublic role trackCount durationMs artworkIds owner { id name }`;
 const MIX = `id kind subject subjectId artworkIds`;
@@ -342,6 +374,9 @@ export interface Wish {
   owner: { id: string; userName: string; displayName: string | null } | null;
   /** Where it goes when uploaded for this wish; null follows the server's rule. */
   targetLibraryId: string | null;
+  /** The user also wants the song's music video (servers with MUSIC_VIDEOS). */
+  wantsVideo?: boolean;
+  videoObtainedAt?: string | null;
 }
 
 export type WishLinkService =
@@ -378,10 +413,13 @@ export interface WishInput {
   sourceUrl?: string | null;
   artworkId?: string | null;
   targetLibraryId?: string | null;
+  wantsVideo?: boolean;
 }
 
-const WISH = `id title artist album note status createdAt obtainedAt foundWhenAdded seen musicBrainzRecordingId sourceUrl sourceService artworkId
-  targetLibraryId owner { id userName displayName } track { ${TRACK} files { format bitRate sampleRate bitDepth } }`;
+/** A wish's fields (built when asked: a track's depend on the server). */
+const WISH = () =>
+  `id title artist album note status createdAt obtainedAt foundWhenAdded seen musicBrainzRecordingId sourceUrl sourceService artworkId
+  targetLibraryId owner { id userName displayName } track { ${TRACK} files { format bitRate sampleRate bitDepth } }${TRACK === TRACK_BASE ? "" : " wantsVideo videoObtainedAt"}`;
 
 /** Where uploads that name no library go (and wishes set to automatic), if the server has such a library. */
 export async function uploadSettings(): Promise<{ defaultLibraryId: string | null; defaultLibraryName: string | null }> {
@@ -402,7 +440,7 @@ export async function wishList(
 ): Promise<{ items: Wish[]; wanted: number; unseen: number }> {
   return (
     await gql<{ wishList: { items: Wish[]; wanted: number; unseen: number } }>(
-      `query($s: WishStatus, $scope: WishListScope) { wishList(status: $s, scope: $scope) { wanted unseen items { ${WISH} } } }`,
+      `query($s: WishStatus, $scope: WishListScope) { wishList(status: $s, scope: $scope) { wanted unseen items { ${WISH()} } } }`,
       { s: status ?? null, scope },
     )
   ).wishList;
@@ -419,7 +457,7 @@ export async function resolveWishLink(url: string): Promise<WishLinkPreview> {
 }
 
 export async function addWish(input: WishInput): Promise<Wish> {
-  return (await gql<{ addWish: Wish }>(`mutation($i: WishInput!) { addWish(input: $i) { ${WISH} } }`, { i: input })).addWish;
+  return (await gql<{ addWish: Wish }>(`mutation($i: WishInput!) { addWish(input: $i) { ${WISH()} } }`, { i: input })).addWish;
 }
 
 export async function removeWish(id: string): Promise<void> {
@@ -645,13 +683,30 @@ export interface ExtensionApp {
   iconUrl: string | null;
   width: number | null;
   height: number | null;
+  /** What it offers on a song, for the song's menu: its url has {trackId}. */
+  trackActions?: { id: string; name: string; url: string; withoutVideoOnly: boolean }[];
 }
 
 export async function extensionApps(): Promise<ExtensionApp[]> {
+  const actions = TRACK === TRACK_BASE ? "" : " trackActions { id name url withoutVideoOnly }";
   return (
     await gql<{ extensionApps: ExtensionApp[] }>(
-      `query($l: String) { extensionApps(language: $l) { extensionId id name description url iconUrl width height } }`,
+      `query($l: String) { extensionApps(language: $l) { extensionId id name description url iconUrl width height${actions} } }`,
       { l: language }
     )
   ).extensionApps;
+}
+
+/** The music videos the user can watch, by title (servers with MUSIC_VIDEOS). */
+export async function musicVideos(search: string | null, after: string | null): Promise<Page<VideoClip>> {
+  return (
+    await gql<{ musicVideos: Page<VideoClip> }>(
+      `query($i: MusicVideosInput) { musicVideos(input: $i) { items { ${VIDEO} } nextCursor totalCount } }`,
+      { i: { search: search || null, after, first: 60 } },
+    )
+  ).musicVideos;
+}
+
+export async function musicVideo(id: string): Promise<VideoClip> {
+  return (await gql<{ musicVideo: VideoClip }>(`query($id: ID!) { musicVideo(id: $id) { ${VIDEO} } }`, { id })).musicVideo;
 }

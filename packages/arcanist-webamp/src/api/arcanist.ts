@@ -150,7 +150,7 @@ let TRACK = TRACK_BASE;
 
 /** Asks for tracks' music videos from now on (the server has MUSIC_VIDEOS). */
 export function enableMusicVideos(on: boolean): void {
-  TRACK = on ? ` videos {  }` : TRACK_BASE;
+  TRACK = on ? `${TRACK_BASE} videos { ${VIDEO} }` : TRACK_BASE;
 }
 const ALBUM = `id title year artworkId trackCount artist { id name }`;
 const PLAYLIST = `id name description isPublic role trackCount durationMs artworkIds owner { id name }`;

@@ -1,7 +1,8 @@
-import { useCallback, useRef, useSyncExternalStore, type ReactNode } from "react";
+import { createContext, useCallback, useContext, useRef, useSyncExternalStore, type ReactNode } from "react";
 import { X } from "lucide-react";
 import { Button, cn } from "../ui/ui";
 import { t } from "../i18n";
+import { useMobile } from "../layout";
 
 // Arcanist's own windows on the desktop: draggable cards stacked with Webamp's (whichever was clicked last is in
 // front), one per kind unless asked otherwise.
@@ -129,8 +130,39 @@ interface WindowProps {
   actions?: ReactNode;
 }
 
-/** A card with a title bar to drag it by, like the panel's dialogs. */
-export function Window({ window: win, title, icon, width = 520, height = 460, children, footer, bodyClassName, actions }: WindowProps) {
+/** On a phone, the window shown as a page (the one in front, unless Webamp is); the others stay open, hidden. */
+export const ShownPage = createContext<string | null>(null);
+
+/** A card with a title bar to drag it by, like the panel's dialogs; on a phone, a page above the tabs. */
+export function Window(props: WindowProps) {
+  return useMobile() ? <Page {...props} /> : <Card {...props} />;
+}
+
+function Page({ window: win, title, icon, children, footer, bodyClassName, actions }: WindowProps) {
+  const shown = useContext(ShownPage) === win.id;
+  return (
+    <section
+      role="dialog"
+      aria-label={title}
+      aria-hidden={!shown}
+      className="ui fixed inset-x-0 top-0 flex flex-col overflow-hidden bg-[var(--card)] text-[var(--card-foreground)]"
+      style={{ bottom: "var(--page-bottom)", zIndex: win.z, display: shown ? undefined : "none" }}
+    >
+      <div className="flex min-h-12 select-none items-center gap-2 border-b px-3 py-1.5">
+        {icon}
+        <h2 className="flex-1 truncate text-base font-semibold">{title}</h2>
+        {actions}
+        <Button variant="ghost" size="icon" aria-label={t("common.close")} onClick={() => desktopWindows.close(win.id)}>
+          <X />
+        </Button>
+      </div>
+      <div className={cn("min-h-0 flex-1 overflow-auto p-4", bodyClassName)}>{children}</div>
+      {footer && <div className="flex flex-wrap items-center justify-end gap-2 border-t px-4 py-3">{footer}</div>}
+    </section>
+  );
+}
+
+function Card({ window: win, title, icon, width = 520, height = 460, children, footer, bodyClassName, actions }: WindowProps) {
   const drag = useRef<{ dx: number; dy: number } | null>(null);
 
   const onPointerDown = useCallback(

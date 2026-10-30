@@ -5,6 +5,7 @@ import { DragGhost } from "../dnd";
 import { t } from "../i18n";
 import { useSettings, type IconSize } from "../settings";
 import { cn } from "../ui/ui";
+import { useMobile } from "../layout";
 import { AccountWindow, UploadWindow } from "../windows/AccountWindows";
 import { LibraryWindow } from "../windows/LibraryWindow";
 import { LyricsWindow, MixesWindow, StarTracksWindow } from "../windows/MusicWindows";
@@ -16,8 +17,9 @@ import { UploadsWindow } from "../windows/UploadsWindow";
 import { VideosWindow, VideoWindow } from "../windows/VideoWindows";
 import { WishesWindow } from "../windows/WishesWindow";
 import { AppGlyph, KINDS, WEBAMP_KIND } from "./kinds";
+import { MobileNav, useShownPage } from "./MobileNav";
 import { Taskbar } from "./Taskbar";
-import { desktopWindows, openExtensionApp, useDesktopWindows, type DesktopWindow, type WindowKind } from "./windows";
+import { desktopWindows, openExtensionApp, ShownPage, useDesktopWindows, type DesktopWindow, type WindowKind } from "./windows";
 
 export interface DesktopIcon {
   id: string;
@@ -84,8 +86,28 @@ const SIZES: Record<IconSize, { button: string; tile: string }> = {
   large: { button: "w-[104px]", tile: "size-16 rounded-2xl [&_svg]:size-9" },
 };
 
-/** Webamp's desktop: icons that open Arcanist's windows (double-click, or Enter), like webamp.org's, and a taskbar. */
+/**
+ * Webamp's desktop: icons that open Arcanist's windows (double-click, or Enter), like webamp.org's, and a taskbar. On a
+ * phone, Webamp fills the screen and the windows are pages reached from tabs at the bottom.
+ */
 export function Desktop() {
+  return useMobile() ? <MobileDesktop /> : <IconDesktop />;
+}
+
+function MobileDesktop() {
+  const open = useDesktopWindows();
+  const page = useShownPage(open);
+  return (
+    <ShownPage.Provider value={page?.id ?? null}>
+      {open.map((win) => (
+        <WindowContent key={win.id} window={win} />
+      ))}
+      <MobileNav windows={open} />
+    </ShownPage.Provider>
+  );
+}
+
+function IconDesktop() {
   const [selected, setSelected] = useState<string | null>(null);
   const open = useDesktopWindows();
   const s = useSettings();

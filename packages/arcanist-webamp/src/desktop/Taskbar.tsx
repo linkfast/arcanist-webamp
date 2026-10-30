@@ -25,7 +25,8 @@ export function ArcanistMark({ className }: { className?: string }) {
   );
 }
 
-function usePlayerState(): { closed: boolean; z: number } {
+/** Whether Webamp is closed, and its layer in the desktop's stacking order. */
+export function usePlayerState(): { closed: boolean; z: number } {
   const player = app.player;
   const snapshot = useSyncExternalStore(
     (listener) => player.subscribe(listener),

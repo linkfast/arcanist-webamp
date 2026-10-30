@@ -58,6 +58,7 @@ function Root() {
     webampRendered = true;
     const node = host.current;
     const player = app.start();
+    player.attach(node);
     startAura(player);
     void (async () => {
       if (settings.value.skin.kind !== "base") {

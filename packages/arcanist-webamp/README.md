@@ -9,6 +9,12 @@ comes with Arcanist as a bonus player, served at `/players/webamp/`.
   and resizable: library, playlists, StarTracks, mixes, synced lyrics, uploads, the account and Personalize. A
   taskbar has the Arcanist menu (every window, the account and administration pages of Arcanist's panel, the source
   code, signing out), a button per open window and for Webamp, and a clock.
+- **On a phone** (narrow screens, or touch screens held sideways; `src/layout.ts`) there is no desktop: Webamp's open
+  windows go one under the other, scaled to the screen's width (CSS `zoom` on `#webamp`), with the playlist (or
+  Milkdrop) growing to fill the screen, and they stay in place (dragging and resizing are off). Arcanist's windows are
+  full-screen pages, reached from tabs at the bottom (Webamp, library, playlists, StarTracks and *More*: the open
+  pages, every app and the account); while a page covers Webamp, what is playing shows above the tabs with play/pause
+  and next. Playing or queueing from a page leaves the page open.
 - **The library** has a sidebar (home, artists, albums, songs), search as you type, album and artist pages, back,
   forward and a breadcrumb, and a library selector (remembered per browser) when the user sees several libraries.
   Lists load more as they scroll; double-click plays, right-click has the same menu as Webamp's playlist.

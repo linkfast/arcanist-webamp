@@ -1,17 +1,23 @@
 import WebampLazy from "../../../webamp/js/webampLazy";
-import type { ContextMenuItem, Track as WebampTrack, WindowLayout } from "../../../webamp/js/types";
+import type { ContextMenuItem, Track as WebampTrack, WindowInfo, WindowLayout } from "../../../webamp/js/types";
 import { loadDefaultSkin, setWindowLayout, toggleWindow } from "../../../webamp/js/actionCreators";
-import { centerWindows } from "../../../webamp/js/actionCreators/windows";
+import { centerWindows, setWindowSize, updateWindowPositions } from "../../../webamp/js/actionCreators/windows";
 import { setSkinFromBlob } from "../../../webamp/js/actionCreators/files";
+import { WINDOW_RESIZE_SEGMENT_HEIGHT, WINDOW_RESIZE_SEGMENT_WIDTH } from "../../../webamp/js/constants";
+import * as Selectors from "../../../webamp/js/selectors";
 import isButterchurnSupported from "butterchurn/dist/isSupported.min";
 import { absolute, artworkUrl } from "../api/client";
 import { recordPlay, type Track } from "../api/arcanist";
 import { desktopWindows, TASKBAR_HEIGHT } from "../desktop/windows";
 import { draggedTracks, webampDragOut } from "../dnd";
+import { isMobile, onLayoutChange } from "../layout";
 import { settings } from "../settings";
 
 /** Webamp's windows and menus sit below Arcanist's own windows. */
 export const WEBAMP_Z = 10;
+
+/** What the playlist and Milkdrop grow by, in each direction. */
+const RESIZE_STEP = { width: WINDOW_RESIZE_SEGMENT_WIDTH, height: WINDOW_RESIZE_SEGMENT_HEIGHT };
 
 export interface PlayerHooks {
   /** The main menu's "Arcanist" items. */
@@ -44,11 +50,14 @@ export class ArcanistPlayer {
   private readonly listeners = new Set<() => void>();
   /** Where Webamp's windows start (and go back to). */
   private readonly layout: WindowLayout;
+  /** The node Webamp renders into. */
+  private host: HTMLElement | null = null;
+  private fitting = false;
 
   constructor(hooks: PlayerHooks) {
     const butterchurn = isButterchurnSupported() as boolean;
-    // Milkdrop starts open unless the user turned it off (it can still be opened from Webamp's menu).
-    const milkdrop = butterchurn && settings.value.milkdrop;
+    // Milkdrop starts open unless the user turned it off, or on a phone (it can still be opened from Webamp's menu).
+    const milkdrop = butterchurn && settings.value.milkdrop && !isMobile();
     const layout: WindowLayout = {
       main: { position: { left: 0, top: 0 } },
       equalizer: { position: { left: 0, top: 116 } },
@@ -106,8 +115,29 @@ export class ArcanistPlayer {
         : {}),
     } as ConstructorParameters<typeof WebampLazy>[0]);
 
-    this.webamp.__onStateChange(() => this.emit());
+    this.webamp.__onStateChange(() => {
+      this.emit();
+      this.fitLater();
+    });
     new PlayReporter(this);
+    addEventListener("resize", () => this.fitLater());
+    onLayoutChange(() => {
+      if (isMobile()) return this.fitLater();
+      // Back on the desktop: unscaled, and the windows where they start.
+      this.fit();
+      this.resetLayout();
+    });
+    // On a phone the windows stay stacked: their title bars and resize corners do not move them.
+    for (const type of ["mousedown", "touchstart"])
+      document.addEventListener(
+        type,
+        (event) => {
+          if (!isMobile() || !(event.target instanceof Element) || !event.target.closest("#webamp")) return;
+          if (event.target.classList.contains("draggable") || event.target.closest("#playlist-resize-target, #gen-resize-target"))
+            event.stopPropagation();
+        },
+        true,
+      );
     // Eject ("open file", in the main window and the playlist) opens Arcanist's library instead of the computer's files,
     // which ADD FILE and dropping files still reach. Caught before Webamp's own handler (React listens on its root).
     document.addEventListener(
@@ -128,6 +158,78 @@ export class ArcanistPlayer {
       },
       true,
     );
+  }
+
+  /** The area Webamp's windows go in (above the taskbar or the tabs). */
+  attach(host: HTMLElement): void {
+    this.host = host;
+    this.fitLater();
+  }
+
+  private fitLater(): void {
+    if (this.fitting) return;
+    this.fitting = true;
+    requestAnimationFrame(() => {
+      this.fitting = false;
+      this.fit();
+    });
+  }
+
+  /**
+   * On a phone, Webamp's open windows go one under the other, scaled so the column is as wide as the screen (or as
+   * tall, held sideways), and the playlist (or Milkdrop) grows to fill what is left below. On the desktop, nothing.
+   */
+  private fit(): void {
+    // Webamp's own node (on the body; the host only says where its windows go) is what scales.
+    const host = this.host;
+    const node = document.getElementById("webamp");
+    if (!host || !node) return;
+    if (!isMobile()) {
+      if (node.style.zoom) node.style.zoom = "";
+      return;
+    }
+    const state = this.webamp.store.getState();
+    const dispatch = this.webamp.store.dispatch as (action: unknown) => void;
+    const open = (id: string) => (state.windows.genWindows as Record<string, { open: boolean } | undefined>)[id]?.open ?? false;
+    const info = new Map<string, WindowInfo>(Selectors.getWindowsInfo(state).map((w) => [w.key, w]));
+    const stack = (["main", "equalizer", "playlist", "milkdrop"] as const).filter((id) => open(id) && info.has(id));
+    if (stack.length === 0) return;
+    const filler = stack.includes("milkdrop") ? "milkdrop" : stack.includes("playlist") ? "playlist" : null;
+    const windows = state.windows.genWindows as Record<string, { size: [number, number]; shade?: boolean }>;
+    const resizable = (id: string): id is "playlist" | "milkdrop" => id === "playlist" || id === "milkdrop";
+    // Each window at its smallest: the resizable ones without their extra steps.
+    const smallest = (id: string) => {
+      const w = info.get(id)!;
+      const [extraWidth, extraHeight] = resizable(id) ? windows[id].size : [0, 0];
+      return { width: w.width - extraWidth * RESIZE_STEP.width, height: windows[id].shade ? w.height : w.height - extraHeight * RESIZE_STEP.height };
+    };
+    const width = Math.max(...stack.map((id) => smallest(id).width));
+    const column = stack.reduce((sum, id) => sum + smallest(id).height, 0);
+
+    const box = host.getBoundingClientRect();
+    if (box.width === 0 || box.height === 0) return;
+    const zoom = Math.min(box.width / width, box.height / column);
+    if (node.style.zoom !== String(zoom)) node.style.zoom = String(zoom);
+    const room = { width: box.width / zoom, height: box.height / zoom };
+
+    // The filler takes the rest of the screen, in its steps; the other resizable one stays at its smallest.
+    const grow = filler && !windows[filler].shade ? Math.max(0, Math.floor((room.height - column) / RESIZE_STEP.height)) : 0;
+    for (const id of stack.filter(resizable)) {
+      const extra = id === filler ? grow : 0;
+      const [w, h] = windows[id].size;
+      if (w !== 0 || h !== extra) dispatch(setWindowSize(id, [0, extra]));
+    }
+    const left = Math.floor(box.left / zoom) + Math.max(0, Math.floor((room.width - width) / 2));
+    let top = Math.floor(box.top / zoom) + Math.max(0, Math.floor((room.height - column - grow * RESIZE_STEP.height) / 2));
+    const positions: Record<string, { x: number; y: number }> = {};
+    let moved = false;
+    for (const id of stack) {
+      positions[id] = { x: left, y: top };
+      const w = info.get(id)!;
+      if (w.x !== left || w.y !== top) moved = true;
+      top += smallest(id).height + (id === filler ? grow * RESIZE_STEP.height : 0);
+    }
+    if (moved) dispatch(updateWindowPositions(positions, true));
   }
 
   /** Brings Webamp's windows (and their menus) in front of Arcanist's. */
@@ -174,6 +276,12 @@ export class ArcanistPlayer {
     this.toFront();
   }
 
+  /** Opens Webamp for what was just played or queued: in front on the desktop; on a phone the page stays. */
+  private show(): void {
+    if (isMobile()) this.webamp.reopen();
+    else this.reopen();
+  }
+
   /** Webamp's track for Arcanist's: no tag reading and no duration probe. */
   toWebamp(track: Track): WebampTrack {
     const url = absolute(track.streamUrl);
@@ -193,13 +301,13 @@ export class ArcanistPlayer {
 
   play(tracks: Track[]): void {
     if (tracks.length === 0) return;
-    this.reopen();
+    this.show();
     this.webamp.setTracksToPlay(tracks.map((t) => this.toWebamp(t)));
   }
 
   append(tracks: Track[]): void {
     if (tracks.length === 0) return;
-    this.reopen();
+    this.show();
     this.webamp.appendTracks(tracks.map((t) => this.toWebamp(t)));
   }
 

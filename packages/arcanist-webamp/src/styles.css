@@ -32,6 +32,13 @@
   --taskbar-height: 44px;
 }
 
+/* A phone: tabs at the bottom instead of the taskbar (layout.ts); pages end above them (MobileNav.tsx moves it up
+   while what is playing shows). */
+:root[data-layout="mobile"] {
+  --taskbar-height: calc(56px + env(safe-area-inset-bottom, 0px));
+  --page-bottom: var(--taskbar-height);
+}
+
 :root.dark {
   color-scheme: dark;
   --background: oklch(0.145 0 0);

@@ -121,7 +121,7 @@ export function Toaster() {
     () => toasts,
   );
   return (
-    <div className="ui pointer-events-none fixed right-4 z-[100000] grid gap-2" style={{ bottom: "calc(var(--taskbar-height) + 1rem)" }}>
+    <div className="ui pointer-events-none fixed right-4 z-[100000] grid gap-2" style={{ bottom: "calc(var(--page-bottom, var(--taskbar-height)) + 1rem)" }}>
       {list.map((t) => (
         <div
           key={t.id}

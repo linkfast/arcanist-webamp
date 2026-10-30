@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { Clapperboard, ListMusic, Search } from "lucide-react";
+import { Clapperboard, ListMusic, MicVocal, Search } from "lucide-react";
 import type Hls from "hls.js";
 import * as api from "../api/arcanist";
 import { absolute, artworkUrl } from "../api/client";
@@ -28,6 +28,8 @@ export function VideoWindow({ window: win }: { window: DesktopWindow }) {
   const watched = useRef({ ms: 0, since: 0, startedAt: null as Date | null });
   const resumeAt = useRef<{ time: number; playing: boolean } | null>(null);
   const canSwitch = clip.sync === "READY";
+  const lyrics = useVideoLyrics(clip.id);
+  const [showLyrics, setShowLyrics] = useState(true);
 
   // Webamp is quiet while the video plays.
   useEffect(() => {
@@ -141,6 +143,12 @@ export function VideoWindow({ window: win }: { window: DesktopWindow }) {
           {t("videos.videoAudio")}
         </Button>
         {!canSwitch && <span className="text-xs text-muted-foreground">{t(`videos.sync.${clip.sync}`)}</span>}
+        {lyrics?.lines && (
+          <Button size="sm" variant={showLyrics ? "default" : "outline"} aria-pressed={showLyrics} onClick={() => setShowLyrics((s) => !s)}>
+            <MicVocal /> {t("videos.lyrics")}
+          </Button>
+        )}
+        {!lyrics?.lines && lyrics?.pending && <span className="text-xs text-muted-foreground">{t("videos.lyricsPending")}</span>}
         {ended && (
           <Button
             size="sm"
@@ -157,6 +165,71 @@ export function VideoWindow({ window: win }: { window: DesktopWindow }) {
         )}
       </div>
     </Window>
+  );
+}
+
+/**
+ * The video's lyrics (servers with VIDEO_LYRICS): asked for again every 20 s while their timing is being worked out,
+ * for ten minutes at most.
+ */
+function useVideoLyrics(id: string): api.MusicVideoLyrics | null {
+  const [lyrics, setLyrics] = useState<api.MusicVideoLyrics | null>(null);
+  useEffect(() => {
+    if (!app.server?.features.includes("VIDEO_LYRICS")) return;
+    let stopped = false;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    let tries = 0;
+    const load = () =>
+      api
+        .musicVideoLyrics(id)
+        .then((result) => {
+          if (stopped) return;
+          setLyrics(result);
+          if (!result.lines && result.pending && ++tries < 30) timer = setTimeout(load, 20_000);
+        })
+        .catch(() => {
+          // Without lyrics the video plays as before.
+        });
+    void load();
+    return () => {
+      stopped = true;
+      clearTimeout(timer);
+    };
+  }, [id]);
+  return lyrics;
+}
+
+/**
+ * The line being sung, over the bottom of the picture, and the next one smaller: they follow the video's own clock,
+ * so seeking, pausing and the scenes without the song (where there are no lines) need nothing else.
+ */
+function LyricsOverlay({ video, lines }: { video: React.RefObject<HTMLVideoElement | null>; lines: api.VideoLyricsLine[] }) {
+  const [index, setIndex] = useState(-1);
+  useEffect(() => {
+    let frame = 0;
+    const follow = () => {
+      const element = video.current;
+      if (element) {
+        const ms = element.currentTime * 1000;
+        const current = lines.findIndex((line) => ms >= line.startMs && ms < line.endMs);
+        setIndex((previous) => (previous === current ? previous : current));
+      }
+      frame = requestAnimationFrame(follow);
+    };
+    frame = requestAnimationFrame(follow);
+    return () => cancelAnimationFrame(frame);
+  }, [video, lines]);
+
+  const line = index >= 0 ? lines[index] : null;
+  // The next line, when it follows right after this one (not past a scene).
+  const following = line ? lines[index + 1] : null;
+  const next = line && following && following.startMs - line.endMs < 1500 && following.text ? following : null;
+  if (!line?.text) return null;
+  return (
+    <div className="pointer-events-none absolute inset-x-0 bottom-14 grid justify-items-center gap-1 px-4 text-center" aria-live="polite">
+      <p className="rounded-md bg-black/65 px-3 py-1 text-lg font-semibold text-white shadow-lg [text-wrap:balance]">{line.text}</p>
+      {next && <p className="rounded bg-black/45 px-2 py-0.5 text-sm text-white/75 [text-wrap:balance]">{next.text}</p>}
+    </div>
   );
 }
 

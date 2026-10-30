@@ -707,6 +707,35 @@ export async function musicVideos(search: string | null, after: string | null): 
   ).musicVideos;
 }
 
+/** A line of a music video's lyrics, on the video's timeline (an empty text is a break). */
+export interface VideoLyricsLine {
+  startMs: number;
+  endMs: number;
+  text: string;
+}
+
+/**
+ * A music video's lyrics: its song's timing carried to where the video plays the song (nothing over its scenes), or
+ * timed on the video's own audio. Without lines, pending says the timing is being worked out.
+ */
+export interface MusicVideoLyrics {
+  sync: "SONG" | "VIDEO" | "NONE";
+  lines: VideoLyricsLine[] | null;
+  plain: string | null;
+  instrumental: boolean;
+  pending: boolean;
+}
+
+/** Servers with VIDEO_LYRICS. */
+export async function musicVideoLyrics(id: string): Promise<MusicVideoLyrics> {
+  return (
+    await gql<{ musicVideoLyrics: MusicVideoLyrics }>(
+      `query($id: ID!) { musicVideoLyrics(id: $id) { sync lines { startMs endMs text } plain instrumental pending } }`,
+      { id },
+    )
+  ).musicVideoLyrics;
+}
+
 export async function musicVideo(id: string): Promise<VideoClip> {
   return (await gql<{ musicVideo: VideoClip }>(`query($id: ID!) { musicVideo(id: $id) { ${VIDEO} } }`, { id })).musicVideo;
 }

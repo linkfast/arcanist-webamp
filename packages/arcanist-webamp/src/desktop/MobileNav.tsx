@@ -1,8 +1,8 @@
 import { useEffect, useState, useSyncExternalStore, type ReactNode } from "react";
-import { Code, LogOut, Menu, Pause, Play, Settings2, SkipForward, UserCog, X } from "lucide-react";
+import { Code, LogOut, Menu, MonitorPlay, Pause, Play, Settings2, SkipForward, UserCog, X } from "lucide-react";
 import { logout, artworkUrl, session } from "../api/client";
 import type { ExtensionApp, Track } from "../api/arcanist";
-import { app, managesServer, openPanel } from "../app";
+import { app, managesServer, openPanel, openPlayer, useOtherPlayers } from "../app";
 import { t } from "../i18n";
 import { MenuList, type MenuItem } from "../ui/menu";
 import { cn } from "../ui/ui";
@@ -141,6 +141,7 @@ function MoreSheet({ windows, onClose }: { windows: DesktopWindow[]; onClose: ()
   const icons = useDesktopIcons().filter((icon) => icon.id !== "webamp" && icon.id !== "source");
   const user = session.user;
   const source = app.server?.sourceUrl;
+  const otherPlayers = useOtherPlayers();
 
   useEffect(() => {
     const close = (e: KeyboardEvent) => e.key === "Escape" && onClose();
@@ -152,6 +153,9 @@ function MoreSheet({ windows, onClose }: { windows: DesktopWindow[]; onClose: ()
     { label: t("start.accountSettings"), icon: <UserCog />, onClick: () => openPanel("account") },
     ...(managesServer() ? [{ label: t("start.panel"), icon: <Settings2 />, onClick: () => openPanel() }] : []),
     ...(source ? [{ label: t("icon.source"), icon: <Code />, onClick: () => globalThis.open(source, "_blank", "noopener") }] : []),
+    ...otherPlayers.map(
+      (player): MenuItem => ({ label: t("start.openPlayer", { name: player.name }), icon: <MonitorPlay />, onClick: () => openPlayer(player) }),
+    ),
     { type: "separator" },
     {
       label: t("account.logout"),

@@ -3,6 +3,7 @@ import * as api from "./api/arcanist";
 import { session } from "./api/client";
 import { desktopWindows } from "./desktop/windows";
 import { t } from "./i18n";
+import { resumeHosting } from "./jamHost";
 import { songMenu } from "./menus";
 import { ArcanistPlayer } from "./player/player";
 import { settings } from "./settings";
@@ -22,6 +23,16 @@ let myCloud: api.MyCloud | null = null;
 const cloudListeners = new Set<() => void>();
 let extensionApps: api.ExtensionApp[] = [];
 const extensionListeners = new Set<() => void>();
+let otherPlayers: api.AvailablePlayer[] = [];
+const playerListeners = new Set<() => void>();
+
+/** This player's id (its manifest's). */
+export const PLAYER_ID = "webamp";
+
+/** Opens another of the server's web players in this tab. */
+export function openPlayer(player: api.AvailablePlayer): void {
+  location.assign(new URL(player.url, location.origin).href);
+}
 
 /** A page of Arcanist's panel (same server, wherever this player is mounted), in a new tab. */
 export function openPanel(path = ""): void {
@@ -49,6 +60,20 @@ export const app = {
     server = info;
     api.setUploadSource(info.features.includes("EXTENSION_APPS"));
     api.enableMusicVideos(info.features.includes("MUSIC_VIDEOS"));
+    api.enablePlaylistSharing(info.features.includes("PLAYLIST_SHARING"));
+  },
+  /** The server's other web players, to switch to (loaded once). */
+  get otherPlayers(): api.AvailablePlayer[] {
+    return otherPlayers;
+  },
+  async loadOtherPlayers(): Promise<void> {
+    if (!server?.features.includes("AVAILABLE_PLAYERS")) return;
+    try {
+      otherPlayers = (await api.availablePlayers()).filter((p) => p.id !== PLAYER_ID);
+    } catch {
+      otherPlayers = [];
+    }
+    for (const listener of playerListeners) listener();
   },
   /** The apps of the server's extensions the user may open (loaded once). */
   get extensionApps(): api.ExtensionApp[] {
@@ -140,6 +165,7 @@ export const app = {
             { label: t("menu.mixes"), onClick: () => desktopWindows.open("mixes") },
             ...(app.server?.features.includes("WISH_LIST") ? [{ label: t("menu.wishes"), onClick: () => desktopWindows.open("wishes") }] : []),
             { label: t("menu.lyrics"), onClick: () => desktopWindows.open("lyrics") },
+            ...(app.server?.features.includes("JUKEBOX_JAM") ? [{ label: t("menu.jukeboxJam"), onClick: () => desktopWindows.open("jukeboxJam") }] : []),
             { label: t("menu.upload"), onClick: () => desktopWindows.open("upload") },
             ...(app.hasUploadHistory ? [{ label: t("menu.uploads"), onClick: () => desktopWindows.open("uploads") }] : []),
             { label: t("menu.personalize"), onClick: () => desktopWindows.open("personalize") },
@@ -148,6 +174,9 @@ export const app = {
             { label: t("menu.account"), onClick: () => desktopWindows.open("account") },
             { label: t("menu.accountSettings"), onClick: () => openPanel("account") },
             ...(managesServer() ? [{ label: t("menu.panel"), onClick: () => openPanel() }] : []),
+            ...(otherPlayers.length > 0
+              ? [{ label: t("menu.otherPlayers"), children: otherPlayers.map((p) => ({ label: p.name, onClick: () => openPlayer(p) })) }]
+              : []),
           ],
         },
       ],
@@ -167,7 +196,10 @@ export const app = {
     });
     void app.loadMyCloud();
     void app.loadExtensionApps();
+    void app.loadOtherPlayers();
     if (server) startWishWatcher(server.features);
+    // A tab that played a Jukebox Jam before a reload goes on playing it.
+    if (server?.features.includes("JUKEBOX_JAM")) setTimeout(resumeHosting, 0);
     return player;
   },
 };
@@ -191,6 +223,17 @@ export function useLibraries(): api.Library[] | null {
       return () => libraryListeners.delete(listener);
     },
     () => libraries,
+  );
+}
+
+/** The server's other web players. */
+export function useOtherPlayers(): api.AvailablePlayer[] {
+  return useSyncExternalStore(
+    (listener) => {
+      playerListeners.add(listener);
+      return () => playerListeners.delete(listener);
+    },
+    () => otherPlayers,
   );
 }
 

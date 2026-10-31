@@ -14,13 +14,32 @@ import { skinFile } from "./skins";
 import { MenuHost } from "./ui/menu";
 import { LegalTerms, TermsGate, loadTerms, termsAccepted } from "./Terms";
 import { Button, Input, Spinner, Toaster } from "./ui/ui";
+import { JamPage, SharedPlaylistPage } from "./windows/JamWindows";
 
-type Stage = "loading" | "setup" | "login" | "terms" | "ready" | "error";
+type Stage = "loading" | "setup" | "login" | "terms" | "ready" | "error" | "shared";
 
 let webampRendered = false;
 
+/** A shared link this page was opened with: a playlist's (#/s/<token>) or a Jukebox Jam's (#/jam/<code>). */
+type SharedLink = { kind: "playlist"; token: string } | { kind: "jam"; code: string };
+
+function sharedLink(): SharedLink | null {
+  const match = /^#\/(s|jam)\/([A-Za-z0-9_-]{8,64})\/?$/.exec(location.hash);
+  if (!match) return null;
+  return match[1] === "s" ? { kind: "playlist", token: match[2] } : { kind: "jam", code: match[2] };
+}
+
+// Another shared link (or leaving one) in the same tab: the page starts again with it.
+addEventListener("hashchange", (e) => {
+  const before = new URL(e.oldURL).hash;
+  const now = sharedLink();
+  if (now || /^#\/(s|jam)\//.test(before)) location.reload();
+});
+
 function Root() {
   const [stage, setStage] = useState<Stage>("loading");
+  const [link] = useState(sharedLink);
+  const [signedIn, setSignedIn] = useState(false);
   const [terms, setTerms] = useState<LegalTerms | null>(null);
   const host = useRef<HTMLDivElement>(null);
   // The player exists before the desktop renders (its taskbar follows Webamp); Webamp itself renders after.
@@ -43,6 +62,11 @@ function Root() {
         const info = await serverInfo();
         app.setServer(info);
         if (!info.setupCompleted) return setStage("setup");
+        // A shared link opens its page, with or without an account (the desktop is not started).
+        if (link) {
+          setSignedIn(await refresh());
+          return setStage("shared");
+        }
         if (await refresh()) await ready();
         else setStage("login");
       } catch {
@@ -77,6 +101,8 @@ function Root() {
       <DesktopBackground />
       <div ref={host} className="absolute inset-x-0 top-0" style={{ pointerEvents: "none", bottom: "var(--taskbar-height)" }} />
       {stage === "ready" && <Desktop />}
+      {stage === "shared" && link?.kind === "playlist" && <SharedPlaylistPage token={link.token} signedIn={signedIn} />}
+      {stage === "shared" && link?.kind === "jam" && <JamPage code={link.code} signedIn={signedIn} />}
       {stage === "login" && <Login onDone={() => void ready()} />}
       {stage === "terms" && terms && <TermsGate terms={terms} onAccepted={start} />}
       {(stage === "loading" || stage === "setup" || stage === "error") && (

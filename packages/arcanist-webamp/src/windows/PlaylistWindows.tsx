@@ -1,12 +1,15 @@
 import { useEffect, useMemo, useState } from "react";
-import { ArrowLeft, ListMusic, Save } from "lucide-react";
+import { ArrowLeft, Copy, Link2, ListMusic, Pencil, Save, Share2, Trash2, X } from "lucide-react";
 import * as api from "../api/arcanist";
+import { session } from "../api/client";
+import { subscribe } from "../api/live";
+import { QrCode } from "../ui/qr";
 import { app } from "../app";
 import { Window, desktopWindows, type DesktopWindow } from "../desktop/windows";
 import { dropIndex, useTrackDrop } from "../dnd";
 import { errorText, t } from "../i18n";
 import { run } from "../menus";
-import { Badge, Button, Checkbox, Input, Spinner, cn, toast } from "../ui/ui";
+import { Badge, Button, Checkbox, Input, Select, Spinner, cn, toast } from "../ui/ui";
 import { Artwork, ListActions, Loading, TrackList, duration, useLoad } from "./common";
 
 /**
@@ -15,7 +18,16 @@ import { Artwork, ListActions, Loading, TrackList, duration, useLoad } from "./c
  */
 export function PlaylistsWindow({ window: win }: { window: DesktopWindow }) {
   const pick = win.props.pick === true;
-  const { data, error, loading } = useLoad(() => app.refreshPlaylists(), [win.props]);
+  const { data, error, loading, reload } = useLoad(() => app.refreshPlaylists(), [win.props]);
+  // Shared with the user, renamed, or changed by someone else: the list follows.
+  useEffect(() => {
+    if (!app.server?.features.includes("PLAYLIST_SHARING")) return;
+    let timer: number | null = null;
+    return subscribe(`subscription { playlistChanged { playlistId deleted } }`, {}, () => {
+      if (timer != null) clearTimeout(timer);
+      timer = window.setTimeout(reload, 300);
+    });
+  }, [reload]);
   const [open, setOpen] = useState<api.Playlist | null>(null);
   const [loadingId, setLoadingId] = useState<string | null>(null);
 
@@ -41,7 +53,17 @@ export function PlaylistsWindow({ window: win }: { window: DesktopWindow }) {
   return (
     <Window window={win} title={pick ? t("playlists.pick") : t("playlists.title")} icon={<ListMusic className="size-4" />} width={560} height={520}>
       {open && !pick ? (
-        <PlaylistView playlist={open} onBack={() => setOpen(null)} />
+        <PlaylistView
+          playlist={open}
+          onBack={() => {
+            setOpen(null);
+            reload();
+          }}
+          onChanged={(changed) => {
+            setOpen(changed);
+            void app.refreshPlaylists();
+          }}
+        />
       ) : (
         <>
           <Loading error={error} loading={loading && !data} />
@@ -66,7 +88,7 @@ export function PlaylistsWindow({ window: win }: { window: DesktopWindow }) {
 /** A playlist of the list: opens it, and takes songs dropped on it (at its end) when the user can edit it. */
 function PlaylistItem({ playlist, pick, loading, onOpen }: { playlist: api.Playlist; pick: boolean; loading: boolean; onOpen: () => void }) {
   const drop = useTrackDrop({
-    disabled: pick || playlist.role === "VIEWER",
+    disabled: pick || playlist.role === "VIEWER" || playlist.type === "JUKEBOX_JAM",
     accepts: (d) => d.entries?.playlistId !== playlist.id,
     onDrop: (d) =>
       run(
@@ -91,6 +113,9 @@ function PlaylistItem({ playlist, pick, loading, onOpen }: { playlist: api.Playl
           <span className="flex items-center gap-2 truncate text-sm font-medium">
             {playlist.name}
             {playlist.isPublic && <Badge>{t("playlists.public")}</Badge>}
+            {playlist.type === "JUKEBOX_JAM" && <Badge>{t("icon.jukeboxJam")}</Badge>}
+            {playlist.link && <Link2 className="size-3.5 text-muted-foreground" aria-label={t("playlists.hasLink")} />}
+            {(playlist.members?.length ?? 0) > 0 && playlist.role === "OWNER" && <Badge>{t("playlists.sharedWith", { count: playlist.members!.length })}</Badge>}
           </span>
           <span className="truncate text-xs text-muted-foreground">
             {t("playlists.tracks", { count: playlist.trackCount })} · {duration(playlist.durationMs)}
@@ -107,9 +132,10 @@ function PlaylistItem({ playlist, pick, loading, onOpen }: { playlist: api.Playl
  * An open playlist. Its owner and collaborators drop songs where they want them (from the library, other windows
  * or Webamp's playlist), drag its songs to reorder them, and remove them from the menu.
  */
-function PlaylistView({ playlist, onBack }: { playlist: api.Playlist; onBack: () => void }) {
+function PlaylistView({ playlist, onBack, onChanged }: { playlist: api.Playlist; onBack: () => void; onChanged: (playlist: api.Playlist) => void }) {
   const { data, error, loading, reload } = useLoad(() => api.playlistEntries(playlist.id), [playlist.id]);
-  const editable = playlist.role !== "VIEWER";
+  // A Jam's queue changes through the Jam.
+  const editable = playlist.role !== "VIEWER" && playlist.type !== "JUKEBOX_JAM";
   const tracks = useMemo(() => data?.map((e) => e.track) ?? [], [data]);
   const changed = () => {
     reload();
@@ -139,14 +165,38 @@ function PlaylistView({ playlist, onBack }: { playlist: api.Playlist; onBack: ()
     },
   });
 
+  const [panel, setPanel] = useState<"edit" | "share" | null>(null);
+  const manages = playlist.role === "OWNER" || playlist.role === "MANAGER";
+  const sharingOn = app.server?.features.includes("PLAYLIST_SHARING") ?? false;
+
   return (
     <div {...drop.props} className="grid min-h-full content-start gap-3">
-      <div className="flex items-center gap-3">
+      <div className="flex flex-wrap items-center gap-3">
         <Button variant="outline" size="icon" aria-label={t("common.back")} onClick={onBack}>
           <ArrowLeft />
         </Button>
         <h3 className="min-w-0 flex-1 truncate text-lg font-semibold">{playlist.name}</h3>
+        {playlist.role !== "OWNER" && <Badge>{t(`playlists.role.${playlist.role}` as "playlists.role.VIEWER")}</Badge>}
+        {manages && sharingOn && playlist.type !== "JUKEBOX_JAM" && (
+          <>
+            <Button variant="outline" size="sm" onClick={() => setPanel(panel === "edit" ? null : "edit")}>
+              <Pencil />
+              {t("playlists.edit")}
+            </Button>
+            <Button variant="outline" size="sm" onClick={() => setPanel(panel === "share" ? null : "share")}>
+              <Share2 />
+              {t("playlists.share")}
+            </Button>
+          </>
+        )}
       </div>
+      {panel === "edit" && <EditPlaylist playlist={playlist} onDone={(p) => (p ? onChanged(p) : onBack())} />}
+      {panel === "share" && <SharePlaylist playlist={playlist} onChanged={onChanged} />}
+      {playlist.jukeboxJamCode && (
+        <Button variant="secondary" className="justify-self-start" onClick={() => desktopWindows.open("jukeboxJam", { code: playlist.jukeboxJamCode })}>
+          {t("playlists.openJam")}
+        </Button>
+      )}
       {data && <ListActions tracks={tracks} />}
       {data ? (
         <TrackList
@@ -169,6 +219,216 @@ function PlaylistView({ playlist, onBack }: { playlist: api.Playlist; onBack: ()
       ) : (
         <Loading error={error} loading={loading} />
       )}
+    </div>
+  );
+}
+
+/** Renaming, describing and making public a playlist (its owner and managers); deleting it (its owner). */
+function EditPlaylist({ playlist, onDone }: { playlist: api.Playlist; onDone: (playlist: api.Playlist | null) => void }) {
+  const [name, setName] = useState(playlist.name);
+  const [description, setDescription] = useState(playlist.description ?? "");
+  const [isPublic, setIsPublic] = useState(playlist.isPublic);
+  const [busy, setBusy] = useState(false);
+  const save = async () => {
+    setBusy(true);
+    try {
+      onDone(await api.updatePlaylist(playlist.id, name.trim(), description.trim() || null, isPublic));
+      toast(t("playlists.updated"));
+    } catch (e) {
+      toast(errorText((e as { code?: string }).code ?? "unknown"), true);
+    } finally {
+      setBusy(false);
+    }
+  };
+  const remove = async () => {
+    if (!confirm(t("playlists.deleteConfirm", { name: playlist.name }))) return;
+    try {
+      await api.deletePlaylist(playlist.id);
+      void app.refreshPlaylists();
+      toast(t("playlists.deleted", { name: playlist.name }));
+      onDone(null);
+    } catch (e) {
+      toast(errorText((e as { code?: string }).code ?? "unknown"), true);
+    }
+  };
+  return (
+    <form
+      className="grid gap-3 rounded-xl border p-3"
+      onSubmit={(e) => {
+        e.preventDefault();
+        if (name.trim()) void save();
+      }}
+    >
+      <label className="grid gap-1.5 text-sm font-medium">
+        {t("playlists.name")}
+        <Input value={name} maxLength={200} onChange={(e) => setName(e.target.value)} />
+      </label>
+      <label className="grid gap-1.5 text-sm font-medium">
+        {t("playlists.description")}
+        <textarea
+          className="min-h-16 rounded-md border border-input bg-input/30 px-3 py-2 text-sm outline-none focus-visible:border-ring"
+          value={description}
+          maxLength={2000}
+          onChange={(e) => setDescription(e.target.value)}
+        />
+      </label>
+      <Checkbox checked={isPublic} onChange={setIsPublic} label={t("playlists.makePublic")} />
+      <div className="flex flex-wrap justify-end gap-2">
+        {playlist.role === "OWNER" && (
+          <Button variant="ghost" className="mr-auto text-[var(--destructive)]" onClick={remove}>
+            <Trash2 />
+            {t("playlists.delete")}
+          </Button>
+        )}
+        <Button type="submit" disabled={busy || !name.trim()}>
+          {busy && <Spinner />}
+          {t("common.save")}
+        </Button>
+      </div>
+    </form>
+  );
+}
+
+const ROLES: api.ShareRole[] = ["LISTEN", "EDIT", "MANAGE"];
+
+/** Who the playlist is shared with and what each can do, and its public link (with a QR code). */
+function SharePlaylist({ playlist, onChanged }: { playlist: api.Playlist; onChanged: (playlist: api.Playlist) => void }) {
+  const users = useLoad(() => api.shareableUsers(), []);
+  const sharing = useLoad(() => api.sharing().catch(() => null), []);
+  const [members, setMembers] = useState<api.PlaylistMember[]>(playlist.members ?? []);
+  const [adding, setAdding] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [qr, setQr] = useState(false);
+  const me = session.user?.id;
+  const available = (users.data ?? []).filter((u) => u.id !== playlist.owner.id && u.id !== me && !members.some((m) => m.user.id === u.id));
+  const dirty = JSON.stringify(members.map((m) => [m.user.id, m.role])) !== JSON.stringify((playlist.members ?? []).map((m) => [m.user.id, m.role]));
+  const link = playlist.link ? new URL(playlist.link.url, location.origin).href : null;
+
+  const change = async (call: () => Promise<api.Playlist>) => {
+    setBusy(true);
+    try {
+      const updated = await call();
+      setMembers(updated.members ?? []);
+      onChanged(updated);
+    } catch (e) {
+      toast(errorText((e as { code?: string }).code ?? "unknown"), true);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className="grid gap-4 rounded-xl border p-3">
+      <section className="grid gap-2">
+        <h4 className="text-sm font-semibold">{t("playlists.members")}</h4>
+        <p className="text-xs text-muted-foreground">{t("playlists.membersHelp")}</p>
+        {members.length === 0 && <p className="text-sm text-muted-foreground">{t("playlists.noMembers")}</p>}
+        {members.map((member) => (
+          <div key={member.user.id} className="flex items-center gap-2">
+            <span className="min-w-0 flex-1 truncate text-sm">{member.user.name}</span>
+            <Select
+              className="h-8 w-40"
+              value={member.role}
+              onChange={(e) => setMembers((list) => list.map((m) => (m.user.id === member.user.id ? { ...m, role: e.target.value as api.ShareRole } : m)))}
+            >
+              {ROLES.map((role) => (
+                <option key={role} value={role}>
+                  {t(`playlists.shareRole.${role}` as "playlists.shareRole.LISTEN")}
+                </option>
+              ))}
+            </Select>
+            <Button
+              size="icon-sm"
+              variant="ghost"
+              aria-label={t("playlists.removeMember")}
+              title={t("playlists.removeMember")}
+              onClick={() => setMembers((list) => list.filter((m) => m.user.id !== member.user.id))}
+            >
+              <X />
+            </Button>
+          </div>
+        ))}
+        {available.length > 0 && (
+          <div className="flex gap-2">
+            <Select className="h-8" value={adding} onChange={(e) => setAdding(e.target.value)}>
+              <option value="">{t("playlists.addMember")}</option>
+              {available.map((u) => (
+                <option key={u.id} value={u.id}>
+                  {u.name}
+                </option>
+              ))}
+            </Select>
+            <Button
+              size="sm"
+              variant="outline"
+              disabled={!adding}
+              onClick={() => {
+                const user = available.find((u) => u.id === adding);
+                if (user) setMembers((list) => [...list, { user, role: "LISTEN" }]);
+                setAdding("");
+              }}
+            >
+              {t("playlists.add")}
+            </Button>
+          </div>
+        )}
+        {dirty && (
+          <Button
+            className="justify-self-end"
+            size="sm"
+            disabled={busy}
+            onClick={() => change(() => api.setPlaylistMembers(playlist.id, members.map((m) => ({ userId: m.user.id, role: m.role }))))}
+          >
+            {busy && <Spinner />}
+            {t("playlists.saveSharing")}
+          </Button>
+        )}
+      </section>
+
+      <section className="grid gap-2">
+        <h4 className="text-sm font-semibold">{t("playlists.publicLink")}</h4>
+        {!sharing.data?.publicLinks ? (
+          <p className="text-xs text-muted-foreground">{t("playlists.linksOff")}</p>
+        ) : !sharing.data.canShareLinks ? (
+          <p className="text-xs text-muted-foreground">{t("playlists.linksNotAllowed")}</p>
+        ) : link ? (
+          <>
+            <p className="text-xs text-muted-foreground">{t("playlists.linkHelp")}</p>
+            <div className="flex items-center gap-2">
+              <code className="min-w-0 flex-1 truncate rounded bg-accent/50 px-2 py-1 text-xs">{link}</code>
+              <Button
+                size="icon-sm"
+                variant="ghost"
+                aria-label={t("jam.copyLink")}
+                title={t("jam.copyLink")}
+                onClick={async () => {
+                  await navigator.clipboard.writeText(link);
+                  toast(t("jam.linkCopied"));
+                }}
+              >
+                <Copy />
+              </Button>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              <Button size="sm" variant="outline" onClick={() => setQr((s) => !s)}>
+                {qr ? t("common.close") : t("jam.showQr")}
+              </Button>
+              <Button size="sm" variant="ghost" className="text-[var(--destructive)]" disabled={busy} onClick={() => change(() => api.revokePlaylistLink(playlist.id))}>
+                {t("playlists.revokeLink")}
+              </Button>
+            </div>
+            {qr && <QrCode text={link} className="size-48 justify-self-center p-2" />}
+          </>
+        ) : (
+          <>
+            <p className="text-xs text-muted-foreground">{t("playlists.linkHelp")}</p>
+            <Button size="sm" className="justify-self-start" disabled={busy} onClick={() => change(() => api.createPlaylistLink(playlist.id))}>
+              <Link2 />
+              {t("playlists.createLink")}
+            </Button>
+          </>
+        )}
+      </section>
     </div>
   );
 }

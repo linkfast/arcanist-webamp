@@ -24,7 +24,9 @@ export type WindowKind =
   /** A music video (props: clip); one window per video. */
   | "video"
   /** An extension's app (props: app); one window per app. */
-  | "extensionApp";
+  | "extensionApp"
+  /** Jukebox Jams: the user's, a new one, or one (props: code). */
+  | "jukeboxJam";
 
 export interface DesktopWindow {
   id: string;

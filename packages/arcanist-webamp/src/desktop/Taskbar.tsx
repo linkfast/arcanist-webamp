@@ -1,8 +1,8 @@
 import { useEffect, useRef, useState, useSyncExternalStore } from "react";
-import { Code, LogOut, Settings2, UserCog } from "lucide-react";
+import { Code, LogOut, MonitorPlay, Settings2, UserCog } from "lucide-react";
 import { logout, session } from "../api/client";
 import type { ExtensionApp } from "../api/arcanist";
-import { app, managesServer, openPanel, useExtensionApps, useLibraries } from "../app";
+import { app, managesServer, openPanel, openPlayer, useExtensionApps, useLibraries, useOtherPlayers } from "../app";
 import { language, t } from "../i18n";
 import { MenuList, type MenuItem } from "../ui/menu";
 import { cn } from "../ui/ui";
@@ -80,6 +80,7 @@ function StartMenu({ onClose }: { onClose: () => void }) {
   }, [onClose]);
 
   const extensionApps = useExtensionApps();
+  const otherPlayers = useOtherPlayers();
   const window = (kind: WindowKind): MenuItem => ({ label: KINDS[kind].label(), icon: KINDS[kind].glyph(), onClick: () => desktopWindows.open(kind) });
   const items: MenuItem[] = [
     window("library"),
@@ -87,6 +88,7 @@ function StartMenu({ onClose }: { onClose: () => void }) {
     window("starTracks"),
     window("mixes"),
     window("lyrics"),
+    ...(app.server?.features.includes("JUKEBOX_JAM") ? [window("jukeboxJam")] : []),
     ...(canUpload ? [window("upload")] : []),
     ...extensionApps.map(
       (extension): MenuItem => ({
@@ -101,6 +103,17 @@ function StartMenu({ onClose }: { onClose: () => void }) {
     { label: t("start.accountSettings"), icon: <UserCog />, onClick: () => openPanel("account") },
     ...(managesServer() ? [{ label: t("start.panel"), icon: <Settings2 />, onClick: () => openPanel() }] : []),
     ...(source ? [{ label: t("icon.source"), icon: <Code />, onClick: () => globalThis.open(source, "_blank", "noopener") }] : []),
+    // The server's other web players: this tab goes to the one chosen.
+    ...(otherPlayers.length > 0
+      ? [
+          { type: "separator" } as MenuItem,
+          {
+            label: t("start.otherPlayers"),
+            icon: <MonitorPlay />,
+            children: otherPlayers.map((player) => ({ label: player.isDefault ? `${player.name} ★` : player.name, onClick: () => openPlayer(player) })),
+          },
+        ]
+      : []),
     { type: "separator" },
     {
       label: t("account.logout"),

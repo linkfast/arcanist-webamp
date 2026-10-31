@@ -1,6 +1,6 @@
 {
   "name": "arcanist-webamp",
-  "version": "0.12.0-alpha.1",
+  "version": "0.13.0-alpha.1",
   "private": true,
   "description": "Webamp for Arcanist: the Winamp 2 player, playing an Arcanist server's music.",
   "license": "AGPL-3.0-or-later",
@@ -24,6 +24,7 @@
     "jszip": "^3.10.1",
     "lucide-react": "^0.487.0",
     "music-metadata": "^11.6.0",
+    "qrcode-generator": "2.0.4",
     "react": "^19.1.0",
     "react-dom": "^19.1.0",
     "rollup-plugin-polyfill-node": "^0.13.0",

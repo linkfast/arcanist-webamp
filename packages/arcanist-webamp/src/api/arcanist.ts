@@ -64,11 +64,23 @@ export interface Playlist {
   name: string;
   description: string | null;
   isPublic: boolean;
-  role: "OWNER" | "COLLABORATOR" | "VIEWER";
+  role: "OWNER" | "MANAGER" | "COLLABORATOR" | "VIEWER";
   trackCount: number;
   durationMs: number;
   artworkIds: string[];
   owner: { id: string; name: string };
+  /** Servers with PLAYLIST_SHARING. */
+  type?: "NORMAL" | "JUKEBOX_JAM";
+  members?: PlaylistMember[];
+  link?: { token: string; url: string; createdAt: string } | null;
+  jukeboxJamCode?: string | null;
+}
+
+export type ShareRole = "LISTEN" | "EDIT" | "MANAGE";
+
+export interface PlaylistMember {
+  user: { id: string; name: string };
+  role: ShareRole;
 }
 
 export interface Mix {
@@ -153,7 +165,14 @@ export function enableMusicVideos(on: boolean): void {
   TRACK = on ? `${TRACK_BASE} videos { ${VIDEO} }` : TRACK_BASE;
 }
 const ALBUM = `id title year artworkId trackCount artist { id name }`;
-const PLAYLIST = `id name description isPublic role trackCount durationMs artworkIds owner { id name }`;
+const PLAYLIST_BASE = `id name description isPublic role trackCount durationMs artworkIds owner { id name }`;
+/** A playlist's fields: with its sharing once the server is known to have it. */
+let PLAYLIST = PLAYLIST_BASE;
+
+/** Asks for playlists' members, links and Jams from now on (the server has PLAYLIST_SHARING). */
+export function enablePlaylistSharing(on: boolean): void {
+  PLAYLIST = on ? `${PLAYLIST_BASE} type members { user { id name } role } link { token url createdAt } jukeboxJamCode` : PLAYLIST_BASE;
+}
 const MIX = `id kind subject subjectId artworkIds`;
 
 export async function serverInfo(): Promise<ServerInfo> {
@@ -766,4 +785,306 @@ export async function musicVideoLyrics(id: string): Promise<MusicVideoLyrics> {
 
 export async function musicVideo(id: string): Promise<VideoClip> {
   return (await gql<{ musicVideo: VideoClip }>(`query($id: ID!) { musicVideo(id: $id) { ${VIDEO} } }`, { id })).musicVideo;
+}
+
+// —— Sharing playlists (servers with PLAYLIST_SHARING) ——
+
+export async function updatePlaylist(id: string, name: string, description: string | null, isPublic: boolean): Promise<Playlist> {
+  return (
+    await gql<{ updatePlaylist: Playlist }>(`mutation($id: ID!, $i: UpdatePlaylistInput!) { updatePlaylist(id: $id, input: $i) { ${PLAYLIST} } }`, {
+      id,
+      i: { name, description, isPublic },
+    })
+  ).updatePlaylist;
+}
+
+export async function deletePlaylist(id: string): Promise<void> {
+  await gql(`mutation($id: ID!) { deletePlaylist(id: $id) }`, { id });
+}
+
+export async function setPlaylistMembers(id: string, members: { userId: string; role: ShareRole }[]): Promise<Playlist> {
+  return (
+    await gql<{ setPlaylistMembers: Playlist }>(
+      `mutation($id: ID!, $m: [PlaylistMemberInput!]!) { setPlaylistMembers(playlistId: $id, members: $m) { ${PLAYLIST} } }`,
+      { id, m: members },
+    )
+  ).setPlaylistMembers;
+}
+
+export async function shareableUsers(): Promise<{ id: string; name: string }[]> {
+  return (await gql<{ shareableUsers: { id: string; name: string }[] }>(`query { shareableUsers { id name } }`)).shareableUsers;
+}
+
+export async function createPlaylistLink(id: string): Promise<Playlist> {
+  return (await gql<{ createPlaylistLink: Playlist }>(`mutation($id: ID!) { createPlaylistLink(playlistId: $id) { ${PLAYLIST} } }`, { id }))
+    .createPlaylistLink;
+}
+
+export async function revokePlaylistLink(id: string): Promise<Playlist> {
+  return (await gql<{ revokePlaylistLink: Playlist }>(`mutation($id: ID!) { revokePlaylistLink(playlistId: $id) { ${PLAYLIST} } }`, { id }))
+    .revokePlaylistLink;
+}
+
+export interface Sharing {
+  publicLinks: boolean;
+  jamGuests: boolean;
+  guestAddLimit: number;
+  maxGuests: number;
+  canShareLinks: boolean;
+}
+
+export async function sharing(): Promise<Sharing> {
+  return (await gql<{ sharing: Sharing }>(`query { sharing { publicLinks jamGuests guestAddLimit maxGuests canShareLinks } }`)).sharing;
+}
+
+export interface SharedPlaylistEntry {
+  id: string;
+  position: number;
+  title: string;
+  artists: string[];
+  album: string | null;
+  durationMs: number;
+  artworkId: string | null;
+  previewUrl: string | null;
+  /** To a signed-in user who can play it in full. */
+  track: Track | null;
+}
+
+export interface SharedPlaylist {
+  token: string;
+  name: string;
+  description: string | null;
+  owner: string;
+  trackCount: number;
+  durationMs: number;
+  artworkIds: string[];
+  playlistId: string | null;
+  entries: Page<SharedPlaylistEntry>;
+}
+
+/** A playlist by its public link: anonymous, or with the session when there is one. */
+export async function sharedPlaylist(token: string, after: string | null, signedIn: boolean): Promise<SharedPlaylist> {
+  const track = signedIn ? ` track { ${TRACK} }` : "";
+  return (
+    await gql<{ sharedPlaylist: SharedPlaylist }>(
+      `query($t: String!, $a: String) { sharedPlaylist(token: $t, after: $a, first: 200) { token name description owner trackCount durationMs artworkIds playlistId
+        entries { items { id position title artists album durationMs artworkId previewUrl${track} } nextCursor totalCount } } }`,
+      { t: token, a: after },
+    )
+  ).sharedPlaylist;
+}
+
+export async function copySharedPlaylist(token: string, name: string | null): Promise<Playlist> {
+  return (await gql<{ copySharedPlaylist: Playlist }>(`mutation($t: String!, $n: String) { copySharedPlaylist(token: $t, name: $n) { ${PLAYLIST} } }`, { t: token, n: name }))
+    .copySharedPlaylist;
+}
+
+export interface AvailablePlayer {
+  id: string;
+  name: string;
+  version: string;
+  description: string | null;
+  url: string;
+  isDefault: boolean;
+  features: string[];
+}
+
+/** Servers with AVAILABLE_PLAYERS. */
+export async function availablePlayers(): Promise<AvailablePlayer[]> {
+  return (await gql<{ availablePlayers: AvailablePlayer[] }>(`query { availablePlayers { id name version description url isDefault features } }`))
+    .availablePlayers;
+}
+
+// —— Jukebox Jams (servers with JUKEBOX_JAM) ——
+
+export type JamPlaysOn = "CLIENT" | "SERVER" | "DLNA";
+
+export interface JamSong {
+  trackId: string | null;
+  title: string;
+  artists: string[];
+  album: string | null;
+  durationMs: number;
+  artworkId: string | null;
+  artworkUrl: string | null;
+}
+
+export interface JamEntry {
+  id: string;
+  song: JamSong;
+  state: "WAITING" | "PLAYING" | "PLAYED";
+  addedBy: string | null;
+  addedByGuest: boolean;
+  addedByDj: boolean;
+  addedByYou: boolean;
+  votes: number;
+  pinned: boolean;
+  addedAt: string;
+  playedAt: string | null;
+}
+
+export interface Jam {
+  code: string;
+  name: string;
+  playlistId: string;
+  host: string;
+  url: string;
+  playsOn: JamPlaysOn;
+  rendererId: string | null;
+  hostClient: { kind: string; playerId: string | null; name: string | null; version: string | null; online: boolean; seenAt: string | null } | null;
+  voting: boolean;
+  voteIntervalSeconds: number;
+  allowGuests: boolean;
+  dj: { kind: "ULTIMATE_AI_DJ"; name: string | null; message: string | null; since: string } | null;
+  nowPlaying: { entry: JamEntry | null; external: JamSong | null; paused: boolean; positionMs: number; at: string | null };
+  queue: JamEntry[];
+  played: JamEntry[];
+  you: {
+    participation: "HOST" | "MANAGER" | "MEMBER" | "GUEST" | "VISITOR";
+    name: string | null;
+    guestId: string | null;
+    canControl: boolean;
+    nextVoteAt: string | null;
+    addsLeft: number | null;
+  };
+  guests: { id: string; name: string; joinedAt: string; songsAdded: number; removed: boolean }[] | null;
+  guestLibraryIds: string[] | null;
+  startedAt: string;
+  endedAt: string | null;
+}
+
+export interface JamSummary {
+  code: string;
+  name: string;
+  host: string;
+  hosting: boolean;
+  playsOn: JamPlaysOn;
+  waiting: number;
+  startedAt: string;
+}
+
+const JAM_SONG = `trackId title artists album durationMs artworkId artworkUrl`;
+const JAM_ENTRY = `id song { ${JAM_SONG} } state addedBy addedByGuest addedByDj addedByYou votes pinned addedAt playedAt`;
+const JAM = `code name playlistId host url playsOn rendererId hostClient { kind playerId name version online seenAt } voting voteIntervalSeconds allowGuests
+  dj { kind name message since } nowPlaying { entry { ${JAM_ENTRY} } external { ${JAM_SONG} } paused positionMs at }
+  queue { ${JAM_ENTRY} } played { ${JAM_ENTRY} } you { participation name guestId canControl nextVoteAt addsLeft }
+  guests { id name joinedAt songsAdded removed } guestLibraryIds startedAt endedAt`;
+
+export async function myJukeboxJams(): Promise<JamSummary[]> {
+  return (await gql<{ myJukeboxJams: JamSummary[] }>(`query { myJukeboxJams { code name host hosting playsOn waiting startedAt } }`)).myJukeboxJams;
+}
+
+export async function startJukeboxJam(input: {
+  name: string;
+  playsOn: JamPlaysOn;
+  rendererId: string | null;
+  voting: boolean;
+  allowGuests: boolean;
+  guestLibraryIds: string[] | null;
+}): Promise<Jam> {
+  return (await gql<{ startJukeboxJam: Jam }>(`mutation($i: StartJukeboxJamInput!) { startJukeboxJam(input: $i) { ${JAM} } }`, { i: input })).startJukeboxJam;
+}
+
+export async function jukeboxJam(code: string, guestToken: string | null): Promise<Jam> {
+  return (await gql<{ jukeboxJam: Jam }>(`query($c: String!, $g: String) { jukeboxJam(code: $c, guestToken: $g) { ${JAM} } }`, { c: code, g: guestToken }))
+    .jukeboxJam;
+}
+
+export async function joinJukeboxJam(code: string, name: string | null): Promise<{ token: string; guestId: string; name: string } | null> {
+  return (
+    await gql<{ joinJukeboxJam: { token: string; guestId: string; name: string } | null }>(
+      `mutation($c: String!, $n: String) { joinJukeboxJam(code: $c, name: $n) { token guestId name } }`,
+      { c: code, n: name },
+    )
+  ).joinJukeboxJam;
+}
+
+export async function jukeboxJamSearch(code: string, query: string, guestToken: string | null): Promise<{ song: JamSong; inQueue: boolean }[]> {
+  return (
+    await gql<{ jukeboxJamSearch: { song: JamSong; inQueue: boolean }[] }>(
+      `query($c: String!, $q: String!, $g: String) { jukeboxJamSearch(code: $c, query: $q, first: 40, guestToken: $g) { song { ${JAM_SONG} } inQueue } }`,
+      { c: code, q: query, g: guestToken },
+    )
+  ).jukeboxJamSearch;
+}
+
+export async function addToJukeboxJam(code: string, trackIds: string[], guestToken: string | null): Promise<Jam> {
+  return (
+    await gql<{ addToJukeboxJam: Jam }>(`mutation($c: String!, $t: [ID!]!, $g: String) { addToJukeboxJam(code: $c, trackIds: $t, guestToken: $g) { ${JAM} } }`, {
+      c: code,
+      t: trackIds,
+      g: guestToken,
+    })
+  ).addToJukeboxJam;
+}
+
+export async function voteJukeboxJam(code: string, entryId: string, guestToken: string | null): Promise<Jam> {
+  return (
+    await gql<{ voteJukeboxJam: Jam }>(`mutation($c: String!, $e: ID!, $g: String) { voteJukeboxJam(code: $c, entryId: $e, guestToken: $g) { ${JAM} } }`, {
+      c: code,
+      e: entryId,
+      g: guestToken,
+    })
+  ).voteJukeboxJam;
+}
+
+export type JamAction = "SKIP" | "PAUSE" | "RESUME" | "REMOVE" | "PIN" | "UNPIN" | "MOVE";
+
+export async function controlJukeboxJam(code: string, action: JamAction, entryId?: string, position?: number): Promise<Jam> {
+  return (
+    await gql<{ controlJukeboxJam: Jam }>(`mutation($c: String!, $i: ControlJukeboxJamInput!) { controlJukeboxJam(code: $c, input: $i) { ${JAM} } }`, {
+      c: code,
+      i: { action, entryId: entryId ?? null, position: position ?? null },
+    })
+  ).controlJukeboxJam;
+}
+
+export async function updateJukeboxJam(code: string, input: { name?: string; voting?: boolean; allowGuests?: boolean }): Promise<Jam> {
+  return (await gql<{ updateJukeboxJam: Jam }>(`mutation($c: String!, $i: UpdateJukeboxJamInput!) { updateJukeboxJam(code: $c, input: $i) { ${JAM} } }`, { c: code, i: input }))
+    .updateJukeboxJam;
+}
+
+export async function removeJukeboxJamGuest(code: string, guestId: string): Promise<Jam> {
+  return (await gql<{ removeJukeboxJamGuest: Jam }>(`mutation($c: String!, $g: ID!) { removeJukeboxJamGuest(code: $c, guestId: $g) { ${JAM} } }`, { c: code, g: guestId }))
+    .removeJukeboxJamGuest;
+}
+
+export async function endJukeboxJam(code: string): Promise<Jam> {
+  return (await gql<{ endJukeboxJam: Jam }>(`mutation($c: String!) { endJukeboxJam(code: $c) { ${JAM} } }`, { c: code })).endJukeboxJam;
+}
+
+export async function claimJukeboxJamHost(code: string, deviceId: string): Promise<Jam> {
+  return (
+    await gql<{ claimJukeboxJamHost: Jam }>(`mutation($c: String!, $i: ClaimJukeboxJamHostInput!) { claimJukeboxJamHost(code: $c, input: $i) { ${JAM} } }`, {
+      c: code,
+      i: { deviceId, kind: "WEB", playerId: "webamp", name: "Webamp", version: null },
+    })
+  ).claimJukeboxJamHost;
+}
+
+export async function jukeboxJamNext(code: string): Promise<{ entryId: string; track: Track } | null> {
+  return (await gql<{ jukeboxJamNext: { entryId: string; track: Track } | null }>(`query($c: String!) { jukeboxJamNext(code: $c) { entryId track { ${TRACK} } } }`, { c: code }))
+    .jukeboxJamNext;
+}
+
+export async function reportJukeboxJamPlayback(
+  code: string,
+  deviceId: string,
+  entryId: string | null,
+  state: "PLAYING" | "PAUSED" | "STOPPED",
+  positionMs: number,
+): Promise<void> {
+  await gql(`mutation($c: String!, $i: ReportJukeboxJamPlaybackInput!) { reportJukeboxJamPlayback(code: $c, input: $i) { code } }`, {
+    c: code,
+    i: { deviceId, entryId, external: null, state, positionMs: Math.max(0, Math.round(positionMs)) },
+  });
+}
+
+export interface DlnaRenderer {
+  id: string;
+  name: string;
+}
+
+export async function dlnaRenderers(): Promise<DlnaRenderer[]> {
+  return (await gql<{ dlnaRenderers: DlnaRenderer[] }>(`query { dlnaRenderers { id name } }`)).dlnaRenderers;
 }

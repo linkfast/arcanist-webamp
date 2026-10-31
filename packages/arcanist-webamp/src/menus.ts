@@ -1,4 +1,4 @@
-import { Clapperboard, CloudUpload, Disc3, ListPlus, Play, Puzzle } from "lucide-react";
+import { Clapperboard, CloudUpload, Disc3, ListPlus, PartyPopper, Play, Puzzle } from "lucide-react";
 import { createElement } from "react";
 import * as api from "./api/arcanist";
 import { absolute, session } from "./api/client";
@@ -25,7 +25,7 @@ export async function run<T>(action: () => Promise<T>, done?: (result: T) => str
 
 /** "Add to playlist": the user's editable playlists and a new one, for songs known now or fetched on click. */
 function addToPlaylistItem(tracks: () => Promise<api.Track[]>): MenuItem {
-  const editable = app.playlists.filter((p) => p.role !== "VIEWER");
+  const editable = app.playlists.filter((p) => p.role !== "VIEWER" && p.type !== "JUKEBOX_JAM");
   return {
     label: t("menu.addTo"),
     children: [
@@ -49,6 +49,22 @@ function addToPlaylistItem(tracks: () => Promise<api.Track[]>): MenuItem {
       },
     ],
   };
+}
+
+/** "Add to the Jukebox Jam": the Jams the user takes part in (their queue's playlists say which). */
+function jamItem(tracks: () => Promise<api.Track[]>): MenuItem[] {
+  const jams = app.playlists.filter((p) => p.jukeboxJamCode);
+  if (jams.length === 0) return [];
+  const add = (p: api.Playlist) => () =>
+    run(
+      async () => api.addToJukeboxJam(p.jukeboxJamCode!, (await tracks()).slice(0, 50).map((x) => x.id), null),
+      () => t("jam.addedTo", { name: p.name }),
+    );
+  return [
+    jams.length === 1
+      ? { label: t("menu.addToJam"), icon: icon(PartyPopper), onClick: add(jams[0]) }
+      : { label: t("menu.addToJam"), icon: icon(PartyPopper), children: jams.map((p): MenuItem => ({ label: p.name, onClick: add(p) })) },
+  ];
 }
 
 /**
@@ -125,6 +141,7 @@ export function songMenu(tracks: api.Track[], options: SongMenuOptions = {}): Me
   }
 
   items.push(addToPlaylistItem(async () => tracks));
+  items.push(...jamItem(async () => tracks));
   // Songs all in the user's own Ultimate Cloud library are there already.
   const personal = app.myCloud?.libraryId;
   if (!personal || !tracks.every((x) => x.libraryIds.length === 1 && x.libraryIds[0] === personal)) items.push(...cloudItem(async () => tracks));
@@ -181,6 +198,7 @@ export function albumMenu(album: api.Album, open?: () => void): MenuItem[] {
     { label: t("library.playAlbum"), icon: icon(Play), onClick: () => run(tracks, (list) => app.player.play(list)) },
     { label: t("common.add"), icon: icon(ListPlus), onClick: () => run(tracks, (list) => app.player.append(list)) },
     addToPlaylistItem(tracks),
+    ...jamItem(tracks),
     ...cloudItem(tracks),
     { type: "separator" },
     ...(open ? [{ label: t("menu.openAlbum"), onClick: open }] : []),

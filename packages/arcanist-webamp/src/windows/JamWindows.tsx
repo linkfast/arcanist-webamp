@@ -1,21 +1,16 @@
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import {
   ArrowLeft,
-  Clock,
   Copy,
   Crown,
-  Disc3,
-  Library,
   ListMusic,
   ListPlus,
-  Mic2,
   Pause,
   Pin,
   PinOff,
   Play,
   Plus,
   QrCode as QrCodeIcon,
-  Search,
   Settings2,
   SkipForward,
   Sparkles,
@@ -23,8 +18,6 @@ import {
   Trash2,
   UserMinus,
   Volume2,
-  X,
-  Zap,
 } from "lucide-react";
 import * as api from "../api/arcanist";
 import { artworkUrl } from "../api/client";
@@ -39,7 +32,8 @@ import { Badge, Button, Checkbox, Input, Select, Spinner, cn, toast } from "../u
 import { Artwork, Loading, duration, useLoad } from "./common";
 
 // Jukebox Jams: a live queue several people add songs to (and vote on) while it plays on one player of the host's.
-// The same view serves the host's window, a member's and a guest's page (#/jam/<code>), each seeing what they can do.
+// Webamp is a player a Jam can play on (the host's window); those taking part follow it and add songs in the Jam's
+// client, the link's page (Ultimate Web Player, or Arcanist's own), which the window opens.
 
 const GUEST_KEY = "arcanist.jamGuest.";
 
@@ -136,14 +130,14 @@ function songArtwork(song: api.JamSong, size: number) {
   );
 }
 
-type JamTab = "queue" | "browse" | "invite" | "settings";
+type JamTab = "queue" | "invite" | "settings";
 
 /** Seconds until a moment (0 when it passed or there is none). */
 function secondsUntil(at: string | null | undefined, now: number): number {
   return at ? Math.max(0, Math.ceil((Date.parse(at) - now) / 1000)) : 0;
 }
 
-/** A Jam as the one looking sees it: what plays, the queue, browsing to add songs, inviting, and the host's settings. */
+/** A Jam as the one looking sees it: what plays, the queue, inviting, and the host's settings; adding songs is in the Jam's client. */
 export function JamPanel({
   code,
   guestToken,
@@ -192,7 +186,6 @@ export function JamPanel({
   const participating = you.participation !== "VISITOR";
   const tabs: JamTab[] = [
     "queue",
-    ...(!ended && participating ? (["browse"] as const) : []),
     ...(!ended && participating && (jam.allowGuests || you.canControl) ? (["invite"] as const) : []),
     ...(!ended && you.participation === "HOST" ? (["settings"] as const) : []),
   ];
@@ -212,6 +205,12 @@ export function JamPanel({
           </p>
           {you.name && <p className="text-xs text-muted-foreground">{t(`jam.you.${you.participation}` as "jam.you.GUEST", { name: you.name })}</p>}
         </div>
+        {participating && !ended && (
+          <Button size="sm" onClick={() => window.open(link, "_blank", "noopener")}>
+            <ListPlus />
+            {t("jam.openClient")}
+          </Button>
+        )}
         {you.participation === "HOST" && !ended && (
           <Button variant="outline" size="sm" disabled={busy} onClick={() => act(async () => {
             if (!confirm(t("jam.endConfirm"))) return;
@@ -293,7 +292,6 @@ export function JamPanel({
               onClick={() => setTab(option)}
             >
               {option === "queue" && <ListMusic className="size-4" />}
-              {option === "browse" && <Library className="size-4" />}
               {option === "invite" && <QrCodeIcon className="size-4" />}
               {option === "settings" && <Settings2 className="size-4" />}
               <span className="hidden sm:inline">{t(`jam.tab.${option}` as "jam.tab.queue")}</span>
@@ -304,7 +302,6 @@ export function JamPanel({
       )}
 
       {shown === "queue" && <JamQueue jam={jam} guestToken={guestToken} busy={busy} act={act} now={now} />}
-      {shown === "browse" && <JamBrowser jam={jam} guestToken={guestToken} onChanged={setJam} now={now} />}
       {shown === "invite" && <Invite link={link} guests={jam.allowGuests} />}
       {shown === "settings" && <JamSettings jam={jam} onChanged={setJam} />}
     </div>
@@ -493,396 +490,8 @@ function JamSettings({ jam, onChanged }: { jam: api.Jam; onChanged: (jam: api.Ja
       {api.jamReplaceAvailable() && (
         <Checkbox checked={jam.allowReplace === true} onChange={(allowReplace) => void update({ allowReplace })} label={t("jam.replaceLabel")} />
       )}
-    </div>
-  );
-}
-
-type JamSongResult = { song: api.JamSong; inQueue: boolean };
-
-type BrowseView =
-  | { kind: "home"; section: "artists" | "albums" | "recent" }
-  | { kind: "artist"; artist: api.JamArtist }
-  | { kind: "album"; album: api.JamAlbum };
-
-/**
- * Finding songs to add: a search of songs, artists and albums, and (on servers with JUKEBOX_JAM_BROWSE) the Jam's
- * artists, albums and newest albums, each artist's albums and each album's songs.
- */
-function JamBrowser({ jam, guestToken, onChanged, now }: { jam: api.Jam; guestToken: string | null; onChanged: (jam: api.Jam) => void; now: number }) {
-  const browsing = app.server?.features.includes("JUKEBOX_JAM_BROWSE") ?? false;
-  const [query, setQuery] = useState("");
-  const [stack, setStack] = useState<BrowseView[]>([{ kind: "home", section: "artists" }]);
-  const [queued, setQueued] = useState<Set<string>>(new Set());
-  const [busy, setBusy] = useState<string | null>(null);
-  const view = stack[stack.length - 1];
-  const open = (next: BrowseView) => {
-    setQuery("");
-    setStack((s) => [...s, next]);
-  };
-  const back = () => setStack((s) => (s.length > 1 ? s.slice(0, -1) : s));
-  const replaceIn = secondsUntil(jam.you.nextReplaceAt, now);
-
-  const run = async (key: string, change: () => Promise<api.Jam>, done: string, trackIds: string[]) => {
-    setBusy(key);
-    try {
-      onChanged(await change());
-      setQueued((q) => new Set([...q, ...trackIds]));
-      toast(done);
-    } catch (e) {
-      toast(errorText((e as { code?: string }).code ?? "unknown"), true);
-    } finally {
-      setBusy(null);
-    }
-  };
-  const actions: SongActions = {
-    busy,
-    replaceIn,
-    canReplace: jam.you.canReplace === true,
-    queued,
-    add: (trackId) => run(trackId, () => api.addToJukeboxJam(jam.code, [trackId], guestToken), t("jam.added"), [trackId]),
-    playNow: (trackId) => run("now:" + trackId, () => api.replaceJukeboxJamNowPlaying(jam.code, trackId, guestToken), t("jam.replaced"), []),
-    addAll: (trackIds) =>
-      run("all", () => api.addToJukeboxJam(jam.code, trackIds.slice(0, 50), guestToken), t("jam.browse.addedAll", { count: Math.min(50, trackIds.length) }), trackIds),
-  };
-
-  return (
-    <section className="grid content-start gap-3">
-      <label className="relative">
-        <Search className="pointer-events-none absolute top-2.5 left-3 size-4 text-muted-foreground" />
-        <Input
-          className="pl-9"
-          placeholder={browsing ? t("jam.browse.search") : t("jam.searchPlaceholder")}
-          value={query}
-          onChange={(e) => setQuery(e.target.value)}
-        />
-        {query && (
-          <button className="absolute top-2.5 right-3 text-muted-foreground" aria-label={t("common.close")} onClick={() => setQuery("")}>
-            <X className="size-4" />
-          </button>
-        )}
-      </label>
-      {jam.you.addsLeft != null && <p className="text-xs text-muted-foreground">{t("jam.addsLeft", { count: jam.you.addsLeft })}</p>}
-      {jam.you.canReplace && replaceIn > 0 && <p className="text-xs text-muted-foreground">{t("jam.replaceIn", { seconds: replaceIn })}</p>}
-
-      {query.trim().length >= 2 ? (
-        <SearchResults jam={jam} guestToken={guestToken} query={query.trim()} browsing={browsing} actions={actions} onOpen={open} />
-      ) : !browsing ? null : view.kind === "home" ? (
-        <>
-          <div className="flex gap-1">
-            {(["artists", "albums", "recent"] as const).map((section) => (
-              <Button
-                key={section}
-                size="sm"
-                variant={view.section === section ? "secondary" : "ghost"}
-                onClick={() => setStack([{ kind: "home", section }])}
-              >
-                {section === "artists" ? <Mic2 /> : section === "albums" ? <Disc3 /> : <Clock />}
-                {t(`jam.browse.${section}` as "jam.browse.artists")}
-              </Button>
-            ))}
-          </div>
-          {view.section === "artists" ? (
-            <ArtistGrid code={jam.code} guestToken={guestToken} search={null} onOpen={(artist) => open({ kind: "artist", artist })} />
-          ) : (
-            <AlbumGrid
-              code={jam.code}
-              guestToken={guestToken}
-              options={{ sort: view.section === "recent" ? "RECENTLY_ADDED" : "TITLE" }}
-              onOpen={(album) => open({ kind: "album", album })}
-            />
-          )}
-        </>
-      ) : (
-        <>
-          <div className="flex items-center gap-2">
-            <Button size="sm" variant="ghost" onClick={back}>
-              <ArrowLeft />
-              {t("jam.browse.back")}
-            </Button>
-          </div>
-          {view.kind === "artist" ? (
-            <>
-              <div className="flex items-center gap-3">
-                <Artwork id={view.artist.artworkId} size={56} className="rounded-full" />
-                <div className="grid min-w-0">
-                  <h3 className="truncate text-base font-semibold">{view.artist.name}</h3>
-                  <span className="text-xs text-muted-foreground">{t("jam.browse.albumCount", { count: view.artist.albums })}</span>
-                </div>
-              </div>
-              <AlbumGrid code={jam.code} guestToken={guestToken} options={{ artistId: view.artist.id }} onOpen={(album) => open({ kind: "album", album })} />
-            </>
-          ) : (
-            <AlbumSongs code={jam.code} guestToken={guestToken} album={view.album} actions={actions} jam={jam} />
-          )}
-        </>
-      )}
-    </section>
-  );
-}
-
-interface SongActions {
-  busy: string | null;
-  replaceIn: number;
-  canReplace: boolean;
-  queued: Set<string>;
-  add: (trackId: string) => void;
-  playNow: (trackId: string) => void;
-  addAll: (trackIds: string[]) => void;
-}
-
-/** A song that can be added: «Add», and «Play now» for those who may change the song playing. */
-function SongRow({ result, actions, number }: { result: JamSongResult; actions: SongActions; number?: number | null }) {
-  const { song } = result;
-  const inQueue = result.inQueue || actions.queued.has(song.trackId!);
-  return (
-    <li className="flex items-center gap-3 rounded-md p-1.5 hover:bg-accent/40">
-      {number != null ? <span className="w-5 text-right text-xs tabular-nums text-muted-foreground">{number}</span> : songArtwork(song, 36)}
-      <span className="grid min-w-0 flex-1">
-        <span className="truncate text-sm">{song.title}</span>
-        <span className="truncate text-xs text-muted-foreground">
-          {song.artists.join(", ")}
-          {number == null && song.album && ` · ${song.album}`}
-        </span>
-      </span>
-      <span className="hidden text-xs tabular-nums text-muted-foreground sm:inline">{duration(song.durationMs)}</span>
-      {actions.canReplace && (
-        <Button
-          size="icon-sm"
-          variant="ghost"
-          aria-label={t("jam.playNow")}
-          title={actions.replaceIn > 0 ? t("jam.replaceIn", { seconds: actions.replaceIn }) : t("jam.playNowTitle")}
-          disabled={actions.busy != null || actions.replaceIn > 0}
-          onClick={() => actions.playNow(song.trackId!)}
-        >
-          {actions.busy === "now:" + song.trackId ? <Spinner /> : <Zap />}
-        </Button>
-      )}
-      <Button size="sm" variant={inQueue ? "ghost" : "outline"} disabled={inQueue || actions.busy != null} onClick={() => actions.add(song.trackId!)}>
-        {actions.busy === song.trackId ? <Spinner /> : <Plus />}
-        {inQueue ? t("jam.inQueue") : t("jam.add")}
-      </Button>
-    </li>
-  );
-}
-
-function SearchResults({
-  jam,
-  guestToken,
-  query,
-  browsing,
-  actions,
-  onOpen,
-}: {
-  jam: api.Jam;
-  guestToken: string | null;
-  query: string;
-  browsing: boolean;
-  actions: SongActions;
-  onOpen: (view: BrowseView) => void;
-}) {
-  const [results, setResults] = useState<{ songs: JamSongResult[]; artists: api.JamArtist[]; albums: api.JamAlbum[] } | null>(null);
-  useEffect(() => {
-    let current = true;
-    const timer = setTimeout(async () => {
-      try {
-        const [songs, artists, albums] = await Promise.all([
-          api.jukeboxJamSearch(jam.code, query, guestToken),
-          browsing ? api.jukeboxJamArtists(jam.code, query, null, guestToken).then((p) => p.items.slice(0, 6)) : Promise.resolve([]),
-          browsing ? api.jukeboxJamAlbums(jam.code, { search: query }, guestToken).then((p) => p.items.slice(0, 6)) : Promise.resolve([]),
-        ]);
-        if (current) setResults({ songs, artists, albums });
-      } catch (e) {
-        toast(errorText((e as { code?: string }).code ?? "unknown"), true);
-      }
-    }, 250);
-    return () => {
-      current = false;
-      clearTimeout(timer);
-    };
-  }, [query, jam.code, guestToken, browsing]);
-
-  if (!results) return <Loading error={null} loading />;
-  if (results.songs.length + results.artists.length + results.albums.length === 0)
-    return <p className="p-3 text-center text-sm text-muted-foreground">{t("common.empty")}</p>;
-  return (
-    <div className="grid gap-3">
-      {results.artists.length > 0 && (
-        <div className="grid gap-1">
-          <h4 className="text-xs font-semibold text-muted-foreground uppercase">{t("jam.browse.artists")}</h4>
-          <div className="flex gap-3 overflow-x-auto pb-1">
-            {results.artists.map((artist) => (
-              <button key={artist.id} className="grid w-20 shrink-0 justify-items-center gap-1 text-center" onClick={() => onOpen({ kind: "artist", artist })}>
-                <Artwork id={artist.artworkId} size={64} className="rounded-full" />
-                <span className="line-clamp-2 text-xs">{artist.name}</span>
-              </button>
-            ))}
-          </div>
-        </div>
-      )}
-      {results.albums.length > 0 && (
-        <div className="grid gap-1">
-          <h4 className="text-xs font-semibold text-muted-foreground uppercase">{t("jam.browse.albums")}</h4>
-          <div className="flex gap-3 overflow-x-auto pb-1">
-            {results.albums.map((album) => (
-              <AlbumTile key={album.id} album={album} onOpen={() => onOpen({ kind: "album", album })} className="w-28 shrink-0" />
-            ))}
-          </div>
-        </div>
-      )}
-      {results.songs.length > 0 && (
-        <div className="grid gap-1">
-          {browsing && <h4 className="text-xs font-semibold text-muted-foreground uppercase">{t("jam.browse.songs")}</h4>}
-          <ul className="grid gap-0.5">
-            {results.songs.map((result) => (
-              <SongRow key={result.song.trackId} result={result} actions={actions} />
-            ))}
-          </ul>
-        </div>
-      )}
-    </div>
-  );
-}
-
-/** Pages of a Jam's artists or albums, loaded as the user asks for more. */
-function usePages<T>(load: (after: string | null) => Promise<api.JamPage<T>>, deps: unknown[]) {
-  const [items, setItems] = useState<T[] | null>(null);
-  const [next, setNext] = useState<string | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const [loading, setLoading] = useState(false);
-  const fetchPage = useCallback(
-    async (after: string | null) => {
-      setLoading(true);
-      try {
-        const page = await load(after);
-        setItems((current) => (after ? [...(current ?? []), ...page.items] : page.items));
-        setNext(page.nextCursor);
-        setError(null);
-      } catch (e) {
-        setError(errorText((e as { code?: string }).code ?? "unknown"));
-      } finally {
-        setLoading(false);
-      }
-    },
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    deps,
-  );
-  useEffect(() => {
-    setItems(null);
-    void fetchPage(null);
-  }, [fetchPage]);
-  return { items, error, loading, more: next ? () => void fetchPage(next) : null };
-}
-
-function MoreButton({ more, loading }: { more: (() => void) | null; loading: boolean }) {
-  if (!more) return null;
-  return (
-    <div className="flex justify-center">
-      <Button size="sm" variant="outline" disabled={loading} onClick={more}>
-        {loading && <Spinner />}
-        {t("jam.browse.more")}
-      </Button>
-    </div>
-  );
-}
-
-function ArtistGrid({ code, guestToken, search, onOpen }: { code: string; guestToken: string | null; search: string | null; onOpen: (artist: api.JamArtist) => void }) {
-  const { items, error, loading, more } = usePages((after) => api.jukeboxJamArtists(code, search, after, guestToken), [code, guestToken, search]);
-  if (!items) return <Loading error={error} loading={loading} />;
-  if (items.length === 0) return <p className="p-3 text-center text-sm text-muted-foreground">{t("jam.browse.empty")}</p>;
-  return (
-    <div className="grid gap-3">
-      <div className="grid grid-cols-[repeat(auto-fill,minmax(5.5rem,1fr))] gap-3">
-        {items.map((artist) => (
-          <button key={artist.id} className="grid justify-items-center gap-1 rounded-lg p-1 text-center hover:bg-accent/40" onClick={() => onOpen(artist)}>
-            <Artwork id={artist.artworkId} size={72} className="rounded-full" />
-            <span className="line-clamp-2 text-xs font-medium">{artist.name}</span>
-            <span className="text-[10px] text-muted-foreground">{t("jam.browse.albumCount", { count: artist.albums })}</span>
-          </button>
-        ))}
-      </div>
-      <MoreButton more={more} loading={loading} />
-    </div>
-  );
-}
-
-function AlbumTile({ album, onOpen, className }: { album: api.JamAlbum; onOpen: () => void; className?: string }) {
-  return (
-    <button className={cn("grid content-start gap-1 rounded-lg p-1 text-left hover:bg-accent/40", className)} onClick={onOpen}>
-      <span className="grid aspect-square w-full place-items-center overflow-hidden rounded-md bg-accent text-muted-foreground">
-        {artworkUrl(album.artworkId) ? <img src={artworkUrl(album.artworkId)} alt="" loading="lazy" className="size-full object-cover" /> : <Disc3 className="size-1/3" />}
-      </span>
-      <span className="line-clamp-2 text-xs font-medium">{album.title}</span>
-      <span className="truncate text-[11px] text-muted-foreground">
-        {album.artist}
-        {album.year && ` · ${album.year}`}
-      </span>
-    </button>
-  );
-}
-
-function AlbumGrid({
-  code,
-  guestToken,
-  options,
-  onOpen,
-}: {
-  code: string;
-  guestToken: string | null;
-  options: { artistId?: string; sort?: "TITLE" | "RECENTLY_ADDED" };
-  onOpen: (album: api.JamAlbum) => void;
-}) {
-  const { items, error, loading, more } = usePages((after) => api.jukeboxJamAlbums(code, { ...options, after }, guestToken), [
-    code,
-    guestToken,
-    options.artistId,
-    options.sort,
-  ]);
-  if (!items) return <Loading error={error} loading={loading} />;
-  if (items.length === 0) return <p className="p-3 text-center text-sm text-muted-foreground">{t("jam.browse.empty")}</p>;
-  return (
-    <div className="grid gap-3">
-      <div className="grid grid-cols-[repeat(auto-fill,minmax(7.5rem,1fr))] gap-3">
-        {items.map((album) => (
-          <AlbumTile key={album.id} album={album} onOpen={() => onOpen(album)} />
-        ))}
-      </div>
-      <MoreButton more={more} loading={loading} />
-    </div>
-  );
-}
-
-function AlbumSongs({ code, guestToken, album, actions, jam }: { code: string; guestToken: string | null; album: api.JamAlbum; actions: SongActions; jam: api.Jam }) {
-  const { data, error, loading } = useLoad(() => api.jukeboxJamAlbumSongs(code, album.id, guestToken), [code, album.id, guestToken]);
-  const waiting = (data ?? []).filter((r) => !r.inQueue && !actions.queued.has(r.song.trackId!)).map((r) => r.song.trackId!);
-  // Guests add a few songs at a time: "add all" only when they all fit.
-  const canAddAll = waiting.length > 1 && (jam.you.addsLeft == null || jam.you.addsLeft >= Math.min(50, waiting.length));
-  return (
-    <div className="grid gap-3">
-      <div className="flex items-end gap-3">
-        <Artwork id={album.artworkId} size={96} />
-        <div className="grid min-w-0 flex-1 gap-0.5">
-          <h3 className="line-clamp-2 text-base font-semibold">{album.title}</h3>
-          <span className="truncate text-sm text-muted-foreground">
-            {album.artist}
-            {album.year && ` · ${album.year}`}
-          </span>
-          <span className="text-xs text-muted-foreground">{t("jam.browse.songCount", { count: album.songs })}</span>
-        </div>
-        {canAddAll && (
-          <Button size="sm" variant="outline" disabled={actions.busy != null} onClick={() => actions.addAll(waiting)}>
-            {actions.busy === "all" ? <Spinner /> : <ListPlus />}
-            {t("jam.browse.addAll")}
-          </Button>
-        )}
-      </div>
-      {!data ? (
-        <Loading error={error} loading={loading} />
-      ) : (
-        <ul className="grid gap-0.5">
-          {data.map((result, i) => (
-            <SongRow key={result.song.trackId} result={result} actions={actions} number={i + 1} />
-          ))}
-        </ul>
+      {api.jamSaveOptionAvailable() && (
+        <Checkbox checked={jam.saveAsPlaylist !== false} onChange={(saveAsPlaylist) => void update({ saveAsPlaylist })} label={t("jam.saveLabel")} />
       )}
     </div>
   );
@@ -966,6 +575,7 @@ function StartJam({ onCancel, onStarted }: { onCancel: () => void; onStarted: (c
   const [voting, setVoting] = useState(true);
   const [guests, setGuests] = useState(false);
   const [replace, setReplace] = useState(false);
+  const [save, setSave] = useState(true);
   const [busy, setBusy] = useState(false);
   const renderers = useLoad(() => api.dlnaRenderers().catch(() => []), []);
   const sharing = useLoad(() => api.sharing().catch(() => null), []);
@@ -983,6 +593,7 @@ function StartJam({ onCancel, onStarted }: { onCancel: () => void; onStarted: (c
         allowGuests: guests && guestsAllowed,
         guestLibraryIds: app.libraryId ? [app.libraryId] : null,
         ...(api.jamReplaceAvailable() ? { allowReplace: replace } : {}),
+        ...(api.jamSaveOptionAvailable() ? { saveAsPlaylist: save } : {}),
       });
       // Started to play here: this tab hosts it.
       if (playsOn === "CLIENT") await hostJam(jam.code);
@@ -1021,6 +632,7 @@ function StartJam({ onCancel, onStarted }: { onCancel: () => void; onStarted: (c
       <Checkbox checked={voting} onChange={setVoting} label={t("jam.votingLabel")} />
       {guestsAllowed && <Checkbox checked={guests} onChange={setGuests} label={t("jam.guestsLabel")} />}
       {api.jamReplaceAvailable() && <Checkbox checked={replace} onChange={setReplace} label={t("jam.replaceLabel")} />}
+      {api.jamSaveOptionAvailable() && <Checkbox checked={save} onChange={setSave} label={t("jam.saveLabel")} />}
       <div className="flex justify-end gap-2">
         <Button variant="ghost" onClick={onCancel}>
           {t("common.cancel")}
@@ -1031,92 +643,6 @@ function StartJam({ onCancel, onStarted }: { onCancel: () => void; onStarted: (c
         </Button>
       </div>
     </form>
-  );
-}
-
-/** The page of a Jam's link (#/jam/<code>): a member with their account, or a guest by name. */
-export function JamPage({ code, signedIn }: { code: string; signedIn: boolean }) {
-  const [token, setToken] = useState<string | null>(() => (signedIn ? null : guestTokenOf(code)));
-  const [joined, setJoined] = useState(signedIn ? false : token != null);
-  const [visitor, setVisitor] = useState<api.Jam | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const [name, setName] = useState("");
-  const [busy, setBusy] = useState(false);
-
-  useEffect(() => {
-    if (signedIn) {
-      api
-        .joinJukeboxJam(code, null)
-        .then(() => setJoined(true))
-        .catch((e) => setError(errorText((e as { code?: string }).code ?? "unknown")));
-    } else if (!joined) {
-      api
-        .jukeboxJam(code, null)
-        .then(setVisitor)
-        .catch((e) => setError(errorText((e as { code?: string }).code ?? "unknown")));
-    }
-  }, [code, signedIn, joined]);
-
-  const join = async () => {
-    setBusy(true);
-    try {
-      const session = await api.joinJukeboxJam(code, name.trim());
-      if (session) {
-        keepGuestToken(code, session.token);
-        setToken(session.token);
-      }
-      setJoined(true);
-    } catch (e) {
-      toast(errorText((e as { code?: string }).code ?? "unknown"), true);
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  return (
-    <PublicFrame>
-      {error ? (
-        <p className="py-10 text-center text-sm text-[var(--destructive)]">{error}</p>
-      ) : joined ? (
-        <JamPanel
-          code={code}
-          guestToken={token}
-          onLeft={() => {
-            setToken(null);
-            setJoined(false);
-          }}
-        />
-      ) : visitor ? (
-        <div className="grid gap-4">
-          <div className="grid gap-1">
-            <p className="text-xs font-semibold tracking-wide text-muted-foreground uppercase">{t("jam.title")}</p>
-            <h1 className="text-xl font-semibold">{visitor.name}</h1>
-            <p className="text-sm text-muted-foreground">{t("jam.hostedBy", { name: visitor.host })}</p>
-          </div>
-          {visitor.dj && <DjBanner dj={visitor.dj} />}
-          <form
-            className="grid gap-3 rounded-xl border p-4"
-            onSubmit={(e) => {
-              e.preventDefault();
-              if (name.trim()) void join();
-            }}
-          >
-            <p className="text-sm">{t("jam.joinIntro")}</p>
-            <label className="grid gap-1.5 text-sm font-medium">
-              {t("jam.yourName")}
-              <Input autoFocus value={name} maxLength={40} onChange={(e) => setName(e.target.value)} />
-            </label>
-            <Button type="submit" disabled={busy || !name.trim()}>
-              {busy && <Spinner />}
-              {t("jam.join")}
-            </Button>
-            <p className="text-xs text-muted-foreground">{t("jam.guestNote")}</p>
-          </form>
-        </div>
-      ) : (
-        <Loading error={null} loading />
-      )}
-    </PublicFrame>
   );
 }
 

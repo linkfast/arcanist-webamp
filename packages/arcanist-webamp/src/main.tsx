@@ -14,26 +14,30 @@ import { skinFile } from "./skins";
 import { MenuHost } from "./ui/menu";
 import { LegalTerms, TermsGate, loadTerms, termsAccepted } from "./Terms";
 import { Button, Input, Spinner, Toaster } from "./ui/ui";
-import { JamPage, SharedPlaylistPage } from "./windows/JamWindows";
+import { SharedPlaylistPage } from "./windows/JamWindows";
 
 type Stage = "loading" | "setup" | "login" | "terms" | "ready" | "error" | "shared";
 
 let webampRendered = false;
 
-/** A shared link this page was opened with: a playlist's (#/s/<token>) or a Jukebox Jam's (#/jam/<code>). */
-type SharedLink = { kind: "playlist"; token: string } | { kind: "jam"; code: string };
+/**
+ * A shared link this page was opened with: a playlist's (#/s/<token>). A Jukebox Jam's (#/jam/<code>) goes to the
+ * Jam's own client (Arcanist's, or Ultimate Web Player): Webamp only plays Jams.
+ */
+type SharedLink = { kind: "playlist"; token: string };
 
 function sharedLink(): SharedLink | null {
-  const match = /^#\/(s|jam)\/([A-Za-z0-9_-]{8,64})\/?$/.exec(location.hash);
-  if (!match) return null;
-  return match[1] === "s" ? { kind: "playlist", token: match[2] } : { kind: "jam", code: match[2] };
+  const jam = /^#\/jam\/([A-Za-z0-9_-]{8,64})\/?$/.exec(location.hash);
+  if (jam) location.replace(`/players/jam/#/jam/${jam[1]}`);
+  const match = /^#\/s\/([A-Za-z0-9_-]{8,64})\/?$/.exec(location.hash);
+  return match ? { kind: "playlist", token: match[1] } : null;
 }
 
 // Another shared link (or leaving one) in the same tab: the page starts again with it.
 addEventListener("hashchange", (e) => {
   const before = new URL(e.oldURL).hash;
   const now = sharedLink();
-  if (now || /^#\/(s|jam)\//.test(before)) location.reload();
+  if (now || /^#\/s\//.test(before)) location.reload();
 });
 
 function Root() {
@@ -102,7 +106,6 @@ function Root() {
       <div ref={host} className="absolute inset-x-0 top-0" style={{ pointerEvents: "none", bottom: "var(--taskbar-height)" }} />
       {stage === "ready" && <Desktop />}
       {stage === "shared" && link?.kind === "playlist" && <SharedPlaylistPage token={link.token} signedIn={signedIn} />}
-      {stage === "shared" && link?.kind === "jam" && <JamPage code={link.code} signedIn={signedIn} />}
       {stage === "login" && <Login onDone={() => void ready()} />}
       {stage === "terms" && terms && <TermsGate terms={terms} onAccepted={start} />}
       {(stage === "loading" || stage === "setup" || stage === "error") && (

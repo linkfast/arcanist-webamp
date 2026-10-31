@@ -338,6 +338,20 @@ class Webamp {
   }
 
   /**
+   * Insert an array of `Track`s in the playlist at `atIndex` (0 is the first place). Added for Arcanist.
+   */
+  insertTracks(tracks: Track[], atIndex: number): void {
+    const count = Selectors.getTrackCount(this.store.getState());
+    this.store.dispatch(
+      Actions.loadMediaFiles(
+        tracks,
+        LOAD_STYLE.NONE,
+        Math.max(0, Math.min(atIndex, count))
+      )
+    );
+  }
+
+  /**
    * Replace the playlist with an array of `Track`s and begin playing the first track.
    */
   setTracksToPlay(tracks: Track[]): void {

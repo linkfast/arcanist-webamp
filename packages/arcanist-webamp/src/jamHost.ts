@@ -1,14 +1,16 @@
 import * as api from "./api/arcanist";
-import { absolute } from "./api/client";
+import { absolute, artworkUrl } from "./api/client";
 import { subscribe } from "./api/live";
 import { app } from "./app";
 import { errorText, t } from "./i18n";
 import { toast } from "./ui/ui";
 
 // This tab as the player of a Jukebox Jam (its host API, docs/developers/jukebox-jam.md in Arcanist): it claims the
-// Jam, plays the song the server says comes next and has the one after it waiting in Webamp's list (so there is no
-// gap), reports what plays every 5 seconds and on every change, and does what the host's controls ask (skip, pause).
-// The order is always the server's: votes, pins and the queue's changes replace the song waiting.
+// Jam, puts the song the server says comes next right after the one playing in Webamp's list (so there is no gap),
+// reports what plays every 5 seconds and on every change, and does what the host's controls ask (skip, pause).
+// Webamp's own list stays: the host may be playing something, or have songs of their own coming; the Jam's go right
+// after the one playing, and the host's own go on when the Jam has none waiting (reported as the host's song).
+// The Jam's order is always the server's: votes, pins and the queue's changes replace the song waiting.
 
 const STORAGE_KEY = "arcanist.jamHost";
 
@@ -73,16 +75,21 @@ export async function hostJam(code: string): Promise<void> {
     return null;
   };
 
+  /** Puts the Jam's song right after the one playing (where Webamp's list goes on next), and plays it when asked. */
   const add = (next: { entryId: string; track: api.Track }, start: boolean): void => {
-    const url = absolute(next.track.streamUrl);
-    if (start) player.play([next.track]);
-    else player.append([next.track]);
-    const id = webampIdOf(url);
+    player.insertNext([next.track]);
+    const playlist = player.webamp.store.getState().playlist;
+    const index = playlist.currentTrack == null ? playlist.trackOrder.length - 1 : playlist.trackOrder.indexOf(playlist.currentTrack) + 1;
+    const id = playlist.trackOrder[index] ?? webampIdOf(absolute(next.track.streamUrl));
     if (id != null) entries.set(id, next.entryId);
-    waiting = start ? null : { entryId: next.entryId, webampId: id };
+    if (start) {
+      player.webamp.setCurrentTrack(index);
+      player.webamp.play();
+      waiting = null;
+    } else waiting = { entryId: next.entryId, webampId: id };
   };
 
-  /** Brings Webamp's list in line with the server: what comes next waits after what plays. */
+  /** Brings Webamp's list in line with the server: the Jam's next song waits right after what plays. */
   const sync = async (): Promise<void> => {
     if (busy || stopped) return;
     busy = true;
@@ -94,11 +101,15 @@ export async function hostJam(code: string): Promise<void> {
       const next = await api.jukeboxJamNext(code);
       if (stopped) return;
 
-      if (playingEntry == null || (status === "STOPPED" && waiting == null)) {
-        // Nothing of the Jam plays (or the last one ended): the next one starts.
+      if (waiting && waiting.webampId === current) waiting = null;
+      if (status === "STOPPED" || current == null) {
+        // Nothing plays: the next one starts (after where the list was; the host's own songs stay after it).
+        if (waiting?.webampId != null) player.removeFromList([waiting.webampId]);
+        waiting = null;
         if (next) add(next, true);
       } else if (waiting?.entryId !== next?.entryId) {
-        // The one waiting is no longer next (votes, a pin, removed): another takes its place.
+        // Something plays (the Jam's or the host's own): the Jam's next one waits right after it. The one waiting
+        // before is no longer next (votes, a pin, removed): it gives way.
         if (waiting?.webampId != null) player.removeFromList([waiting.webampId]);
         waiting = null;
         if (next && next.entryId !== playingEntry) add(next, false);
@@ -121,8 +132,26 @@ export async function hostJam(code: string): Promise<void> {
     if (changed && waiting && entryId === waiting.entryId) waiting = null;
     reported = { entryId, state: status ?? "" };
     lastReport = now;
+    // A song of the host's own (not the Jam's) is told as such, so those taking part see what plays.
+    const own = entryId == null && status !== "STOPPED" ? player.current() : null;
+    const external: api.JamExternalSong | null = own
+      ? {
+          title: own.title,
+          artists: own.artists.filter((a) => a.role !== "FEATURED").map((a) => a.name),
+          album: own.album.title,
+          durationMs: own.durationMs,
+          artworkUrl: own.artworkId ? new URL(artworkUrl(own.artworkId, 512)!, location.origin).href : null,
+        }
+      : null;
     try {
-      await api.reportJukeboxJamPlayback(code, device, entryId, entryId == null ? "STOPPED" : (status as "PLAYING" | "PAUSED" | "STOPPED"), player.elapsed() * 1000);
+      await api.reportJukeboxJamPlayback(
+        code,
+        device,
+        entryId,
+        entryId == null && !external ? "STOPPED" : (status as "PLAYING" | "PAUSED" | "STOPPED"),
+        player.elapsed() * 1000,
+        external,
+      );
       // A new song plays: the next one goes after it.
       if (changed) void sync();
     } catch (e) {
@@ -157,11 +186,17 @@ export async function hostJam(code: string): Promise<void> {
           if (change.command === "PAUSE") player.webamp.pause();
           else if (change.command === "RESUME") player.webamp.play();
           else if (change.command === "SKIP") {
-            if (waiting) player.webamp.nextTrack();
-            else {
-              player.webamp.stop();
-              void sync();
-            }
+            // To what comes next in the list: the Jam's waiting song (a song chosen to play now is put there first).
+            void (async () => {
+              await sync();
+              const playlist = player.webamp.store.getState().playlist;
+              const index = playlist.currentTrack == null ? -1 : playlist.trackOrder.indexOf(playlist.currentTrack);
+              if (index >= 0 && index + 1 < playlist.trackOrder.length) player.webamp.nextTrack();
+              else {
+                player.webamp.stop();
+                void sync();
+              }
+            })();
           }
           break;
         case "QUEUE":

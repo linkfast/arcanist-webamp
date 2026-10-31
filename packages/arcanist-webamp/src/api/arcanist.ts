@@ -937,6 +937,7 @@ export interface Jam {
   allowGuests: boolean;
   /** Anyone taking part may replace the song playing (servers with JUKEBOX_JAM_REPLACE). */
   allowReplace?: boolean;
+  saveAsPlaylist?: boolean;
   dj: { kind: "ULTIMATE_AI_DJ"; name: string | null; message: string | null; since: string } | null;
   nowPlaying: { entry: JamEntry | null; external: JamSong | null; paused: boolean; positionMs: number; at: string | null };
   queue: JamEntry[];
@@ -969,17 +970,24 @@ export interface JamSummary {
 
 const JAM_SONG = `trackId title artists album durationMs artworkId artworkUrl`;
 const JAM_ENTRY = `id song { ${JAM_SONG} } state addedBy addedByGuest addedByDj addedByYou votes pinned addedAt playedAt`;
-const jamFields = (replace: boolean) => `code name playlistId host url playsOn rendererId hostClient { kind playerId name version online seenAt } voting voteIntervalSeconds allowGuests
-  ${replace ? "allowReplace" : ""} dj { kind name message since } nowPlaying { entry { ${JAM_ENTRY} } external { ${JAM_SONG} } paused positionMs at }
+const jamFields = (replace: boolean, save: boolean) => `code name playlistId host url playsOn rendererId hostClient { kind playerId name version online seenAt } voting voteIntervalSeconds allowGuests
+  ${replace ? "allowReplace" : ""} ${save ? "saveAsPlaylist" : ""} dj { kind name message since } nowPlaying { entry { ${JAM_ENTRY} } external { ${JAM_SONG} } paused positionMs at }
   queue { ${JAM_ENTRY} } played { ${JAM_ENTRY} } you { participation name guestId canControl nextVoteAt addsLeft ${replace ? "canReplace nextReplaceAt" : ""} }
   guests { id name joinedAt songsAdded removed } guestLibraryIds startedAt endedAt`;
-let JAM = jamFields(false);
+let JAM = jamFields(false, false);
 let jamReplace = false;
+let jamSave = false;
 
-/** Asks for replacing what plays from now on (the server has JUKEBOX_JAM_REPLACE). */
-export function enableJamReplace(on: boolean): void {
-  jamReplace = on;
-  JAM = jamFields(on);
+/** Asks for what the server's Jams have: replacing what plays (JUKEBOX_JAM_REPLACE) and the playlist option (JUKEBOX_JAM_SAVE_AS_PLAYLIST). */
+export function enableJamFeatures(replace: boolean, save: boolean): void {
+  jamReplace = replace;
+  jamSave = save;
+  JAM = jamFields(replace, save);
+}
+
+/** Whether the server lets a Jam be kept as a playlist or not when it ends. */
+export function jamSaveOptionAvailable(): boolean {
+  return jamSave;
 }
 
 /** Whether the server lets a Jam's song playing be replaced. */
@@ -999,6 +1007,7 @@ export async function startJukeboxJam(input: {
   allowGuests: boolean;
   guestLibraryIds: string[] | null;
   allowReplace?: boolean;
+  saveAsPlaylist?: boolean;
 }): Promise<Jam> {
   return (await gql<{ startJukeboxJam: Jam }>(`mutation($i: StartJukeboxJamInput!) { startJukeboxJam(input: $i) { ${JAM} } }`, { i: input })).startJukeboxJam;
 }
@@ -1124,7 +1133,7 @@ export async function controlJukeboxJam(code: string, action: JamAction, entryId
   ).controlJukeboxJam;
 }
 
-export async function updateJukeboxJam(code: string, input: { name?: string; voting?: boolean; allowGuests?: boolean; allowReplace?: boolean }): Promise<Jam> {
+export async function updateJukeboxJam(code: string, input: { name?: string; voting?: boolean; allowGuests?: boolean; allowReplace?: boolean; saveAsPlaylist?: boolean }): Promise<Jam> {
   return (await gql<{ updateJukeboxJam: Jam }>(`mutation($c: String!, $i: UpdateJukeboxJamInput!) { updateJukeboxJam(code: $c, input: $i) { ${JAM} } }`, { c: code, i: input }))
     .updateJukeboxJam;
 }
@@ -1158,11 +1167,21 @@ export async function reportJukeboxJamPlayback(
   entryId: string | null,
   state: "PLAYING" | "PAUSED" | "STOPPED",
   positionMs: number,
+  external: JamExternalSong | null = null,
 ): Promise<void> {
   await gql(`mutation($c: String!, $i: ReportJukeboxJamPlaybackInput!) { reportJukeboxJamPlayback(code: $c, input: $i) { code } }`, {
     c: code,
-    i: { deviceId, entryId, external: null, state, positionMs: Math.max(0, Math.round(positionMs)) },
+    i: { deviceId, entryId: external ? null : entryId, external, state, positionMs: Math.max(0, Math.round(positionMs)) },
   });
+}
+
+/** A song of the host's own that plays during a Jam (not one of the Jam's), as the others see it. */
+export interface JamExternalSong {
+  title: string;
+  artists: string[];
+  album: string | null;
+  durationMs: number | null;
+  artworkUrl: string | null;
 }
 
 export interface DlnaRenderer {

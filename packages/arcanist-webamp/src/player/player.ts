@@ -311,6 +311,17 @@ export class ArcanistPlayer {
     this.webamp.appendTracks(tracks.map((t) => this.toWebamp(t)));
   }
 
+  /** Puts tracks right after the one playing (or loaded), so they play next; at the end when nothing is. */
+  insertNext(tracks: Track[]): void {
+    if (tracks.length === 0) return;
+    const playlist = this.webamp.store.getState().playlist;
+    const index = playlist.currentTrack == null ? playlist.trackOrder.length : playlist.trackOrder.indexOf(playlist.currentTrack) + 1;
+    this.webamp.insertTracks(
+      tracks.map((t) => this.toWebamp(t)),
+      index,
+    );
+  }
+
   /** Arcanist's track of a Webamp playlist entry; null for local files. */
   trackOf(webampId: number): Track | null {
     const entry = this.webamp.store.getState().tracks[webampId];

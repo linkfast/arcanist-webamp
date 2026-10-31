@@ -514,6 +514,34 @@ export async function lyrics(trackId: string): Promise<Lyrics> {
   ).trackLyrics;
 }
 
+/** Where recognizing a song's words with a model (Lyrics Sync) stands (servers with LYRICS_TRANSCRIPTION). */
+export interface LyricsTranscription {
+  state: "UNAVAILABLE" | "HAS_LYRICS" | "NOT_REQUESTED" | "QUEUED" | "WORKING" | "NEEDS_REVIEW" | "NO_VOICE" | "FAILED";
+  canRequest: boolean;
+  canReview: boolean;
+}
+
+const TRANSCRIPTION = "state canRequest canReview";
+
+export async function lyricsTranscription(trackId: string): Promise<LyricsTranscription> {
+  return (
+    await gql<{ lyricsTranscription: LyricsTranscription }>(
+      `query($id: ID!) { lyricsTranscription(trackId: $id) { ${TRANSCRIPTION} } }`,
+      { id: trackId },
+    )
+  ).lyricsTranscription;
+}
+
+/** Asks for the song's words to be recognized; what the model writes waits for review before anyone sees it. */
+export async function requestLyricsTranscription(trackId: string): Promise<LyricsTranscription> {
+  return (
+    await gql<{ requestLyricsTranscription: LyricsTranscription }>(
+      `mutation($id: ID!) { requestLyricsTranscription(trackId: $id) { ${TRANSCRIPTION} } }`,
+      { id: trackId },
+    )
+  ).requestLyricsTranscription;
+}
+
 export async function libraries(): Promise<Library[]> {
   return (await gql<{ libraries: Library[] }>(`query { libraries { id name canUpload } }`)).libraries;
 }

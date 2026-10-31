@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { Disc3, FileText, Star } from "lucide-react";
 import * as api from "../api/arcanist";
-import { app } from "../app";
+import { app, openPanel } from "../app";
 import { Window, type DesktopWindow } from "../desktop/windows";
 import { useTrackDrop } from "../dnd";
 import { t } from "../i18n";
@@ -65,6 +65,78 @@ export function MixesWindow({ window: win }: { window: DesktopWindow }) {
 }
 
 /** The lyrics of what is playing (or of the song given), following the music when they are synced. */
+/**
+ * For a song without lyrics (servers with LYRICS_TRANSCRIPTION): asks for a model (Lyrics Sync) to recognize them,
+ * and follows it every 10 s while it works. What it writes waits for someone to review it; those who may (with
+ * EDIT_METADATA) open it in the panel's editor.
+ */
+function Recognize({ trackId }: { trackId: string }) {
+  const [status, setStatus] = useState<api.LyricsTranscription | null>(null);
+  const [busy, setBusy] = useState(false);
+  const available = app.server?.features.includes("LYRICS_TRANSCRIPTION") ?? false;
+
+  useEffect(() => {
+    if (!available) return;
+    let stopped = false;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const load = () =>
+      api
+        .lyricsTranscription(trackId)
+        .then((result) => {
+          if (stopped) return;
+          setStatus(result);
+          if (result.state === "QUEUED" || result.state === "WORKING") timer = setTimeout(load, 10_000);
+        })
+        .catch(() => setStatus(null));
+    void load();
+    return () => {
+      stopped = true;
+      clearTimeout(timer);
+    };
+  }, [trackId, available, busy]);
+
+  if (!status) return null;
+  const ask = async () => {
+    setBusy(true);
+    try {
+      setStatus(await api.requestLyricsTranscription(trackId));
+    } catch {
+      // The status says why on the next read.
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  switch (status.state) {
+    case "QUEUED":
+    case "WORKING":
+      return <p>{t(status.state === "QUEUED" ? "lyrics.queued" : "lyrics.recognizing")}</p>;
+    case "NEEDS_REVIEW":
+      return (
+        <div className="grid justify-items-center gap-2">
+          <p>{t("lyrics.toReview")}</p>
+          {status.canReview && (
+            <Button size="sm" variant="outline" onClick={() => openPanel(`lyrics/review/${trackId}`)}>
+              {t("lyrics.review")}
+            </Button>
+          )}
+        </div>
+      );
+    default:
+      if (!status.canRequest) return null;
+      return (
+        <div className="grid max-w-xs justify-items-center gap-2">
+          {status.state === "NO_VOICE" && <p>{t("lyrics.noVoice")}</p>}
+          {status.state === "FAILED" && <p>{t("lyrics.failed")}</p>}
+          <Button size="sm" disabled={busy} onClick={() => void ask()}>
+            {t(status.state === "NOT_REQUESTED" ? "lyrics.recognize" : "lyrics.again")}
+          </Button>
+          <p className="text-xs">{t("lyrics.recognizeHelp")}</p>
+        </div>
+      );
+  }
+}
+
 export function LyricsWindow({ window: win }: { window: DesktopWindow }) {
   const player = app.player;
   const current = useSyncExternalStore(
@@ -104,7 +176,10 @@ export function LyricsWindow({ window: win }: { window: DesktopWindow }) {
             </div>
           )}
           {error ? (
-            <p className="py-6 text-center text-sm text-muted-foreground">{t("lyrics.none")}</p>
+            <div className="grid justify-items-center gap-3 py-6 text-center text-sm text-muted-foreground">
+              <p>{t("lyrics.none")}</p>
+              <Recognize trackId={trackId} />
+            </div>
           ) : !data ? (
             <Loading error={null} loading={loading} />
           ) : data.instrumental ? (

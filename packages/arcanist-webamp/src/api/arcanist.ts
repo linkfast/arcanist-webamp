@@ -935,6 +935,8 @@ export interface Jam {
   voting: boolean;
   voteIntervalSeconds: number;
   allowGuests: boolean;
+  /** Anyone taking part may replace the song playing (servers with JUKEBOX_JAM_REPLACE). */
+  allowReplace?: boolean;
   dj: { kind: "ULTIMATE_AI_DJ"; name: string | null; message: string | null; since: string } | null;
   nowPlaying: { entry: JamEntry | null; external: JamSong | null; paused: boolean; positionMs: number; at: string | null };
   queue: JamEntry[];
@@ -946,6 +948,8 @@ export interface Jam {
     canControl: boolean;
     nextVoteAt: string | null;
     addsLeft: number | null;
+    canReplace?: boolean;
+    nextReplaceAt?: string | null;
   };
   guests: { id: string; name: string; joinedAt: string; songsAdded: number; removed: boolean }[] | null;
   guestLibraryIds: string[] | null;
@@ -965,10 +969,23 @@ export interface JamSummary {
 
 const JAM_SONG = `trackId title artists album durationMs artworkId artworkUrl`;
 const JAM_ENTRY = `id song { ${JAM_SONG} } state addedBy addedByGuest addedByDj addedByYou votes pinned addedAt playedAt`;
-const JAM = `code name playlistId host url playsOn rendererId hostClient { kind playerId name version online seenAt } voting voteIntervalSeconds allowGuests
-  dj { kind name message since } nowPlaying { entry { ${JAM_ENTRY} } external { ${JAM_SONG} } paused positionMs at }
-  queue { ${JAM_ENTRY} } played { ${JAM_ENTRY} } you { participation name guestId canControl nextVoteAt addsLeft }
+const jamFields = (replace: boolean) => `code name playlistId host url playsOn rendererId hostClient { kind playerId name version online seenAt } voting voteIntervalSeconds allowGuests
+  ${replace ? "allowReplace" : ""} dj { kind name message since } nowPlaying { entry { ${JAM_ENTRY} } external { ${JAM_SONG} } paused positionMs at }
+  queue { ${JAM_ENTRY} } played { ${JAM_ENTRY} } you { participation name guestId canControl nextVoteAt addsLeft ${replace ? "canReplace nextReplaceAt" : ""} }
   guests { id name joinedAt songsAdded removed } guestLibraryIds startedAt endedAt`;
+let JAM = jamFields(false);
+let jamReplace = false;
+
+/** Asks for replacing what plays from now on (the server has JUKEBOX_JAM_REPLACE). */
+export function enableJamReplace(on: boolean): void {
+  jamReplace = on;
+  JAM = jamFields(on);
+}
+
+/** Whether the server lets a Jam's song playing be replaced. */
+export function jamReplaceAvailable(): boolean {
+  return jamReplace;
+}
 
 export async function myJukeboxJams(): Promise<JamSummary[]> {
   return (await gql<{ myJukeboxJams: JamSummary[] }>(`query { myJukeboxJams { code name host hosting playsOn waiting startedAt } }`)).myJukeboxJams;
@@ -981,6 +998,7 @@ export async function startJukeboxJam(input: {
   voting: boolean;
   allowGuests: boolean;
   guestLibraryIds: string[] | null;
+  allowReplace?: boolean;
 }): Promise<Jam> {
   return (await gql<{ startJukeboxJam: Jam }>(`mutation($i: StartJukeboxJamInput!) { startJukeboxJam(input: $i) { ${JAM} } }`, { i: input })).startJukeboxJam;
 }
@@ -1028,6 +1046,73 @@ export async function voteJukeboxJam(code: string, entryId: string, guestToken: 
   ).voteJukeboxJam;
 }
 
+/** Plays a song now in place of the one playing (when the Jam allows it, or for those who control it). */
+export async function replaceJukeboxJamNowPlaying(code: string, trackId: string, guestToken: string | null): Promise<Jam> {
+  return (
+    await gql<{ replaceJukeboxJamNowPlaying: Jam }>(
+      `mutation($c: String!, $t: ID!, $g: String) { replaceJukeboxJamNowPlaying(code: $c, trackId: $t, guestToken: $g) { ${JAM} } }`,
+      { c: code, t: trackId, g: guestToken },
+    )
+  ).replaceJukeboxJamNowPlaying;
+}
+
+export interface JamArtist {
+  id: string;
+  name: string;
+  albums: number;
+  artworkId: string | null;
+}
+
+export interface JamAlbum {
+  id: string;
+  title: string;
+  artist: string;
+  artistId: string;
+  year: number | null;
+  artworkId: string | null;
+  songs: number;
+}
+
+export interface JamPage<T> {
+  items: T[];
+  nextCursor: string | null;
+  totalCount: number;
+}
+
+/** The artists of a Jam's songs, to browse them (servers with JUKEBOX_JAM_BROWSE). */
+export async function jukeboxJamArtists(code: string, search: string | null, after: string | null, guestToken: string | null): Promise<JamPage<JamArtist>> {
+  return (
+    await gql<{ jukeboxJamArtists: JamPage<JamArtist> }>(
+      `query($c: String!, $s: String, $a: String, $g: String) { jukeboxJamArtists(code: $c, search: $s, after: $a, first: 60, guestToken: $g) { items { id name albums artworkId } nextCursor totalCount } }`,
+      { c: code, s: search, a: after, g: guestToken },
+    )
+  ).jukeboxJamArtists;
+}
+
+/** Albums with songs of a Jam: an artist's, or all of them (by title or newest first). */
+export async function jukeboxJamAlbums(
+  code: string,
+  options: { artistId?: string | null; search?: string | null; sort?: "TITLE" | "RECENTLY_ADDED"; after?: string | null },
+  guestToken: string | null,
+): Promise<JamPage<JamAlbum>> {
+  return (
+    await gql<{ jukeboxJamAlbums: JamPage<JamAlbum> }>(
+      `query($c: String!, $ar: ID, $s: String, $o: JukeboxJamAlbumSort, $a: String, $g: String) { jukeboxJamAlbums(code: $c, artistId: $ar, search: $s, sort: $o, after: $a, first: 60, guestToken: $g) { items { id title artist artistId year artworkId songs } nextCursor totalCount } }`,
+      { c: code, ar: options.artistId ?? null, s: options.search ?? null, o: options.sort ?? null, a: options.after ?? null, g: guestToken },
+    )
+  ).jukeboxJamAlbums;
+}
+
+/** An album's songs that can be added to a Jam, in order. */
+export async function jukeboxJamAlbumSongs(code: string, albumId: string, guestToken: string | null): Promise<{ song: JamSong; inQueue: boolean }[]> {
+  return (
+    await gql<{ jukeboxJamAlbumSongs: { song: JamSong; inQueue: boolean }[] }>(
+      `query($c: String!, $al: ID!, $g: String) { jukeboxJamAlbumSongs(code: $c, albumId: $al, guestToken: $g) { song { ${JAM_SONG} } inQueue } }`,
+      { c: code, al: albumId, g: guestToken },
+    )
+  ).jukeboxJamAlbumSongs;
+}
+
 export type JamAction = "SKIP" | "PAUSE" | "RESUME" | "REMOVE" | "PIN" | "UNPIN" | "MOVE";
 
 export async function controlJukeboxJam(code: string, action: JamAction, entryId?: string, position?: number): Promise<Jam> {
@@ -1039,7 +1124,7 @@ export async function controlJukeboxJam(code: string, action: JamAction, entryId
   ).controlJukeboxJam;
 }
 
-export async function updateJukeboxJam(code: string, input: { name?: string; voting?: boolean; allowGuests?: boolean }): Promise<Jam> {
+export async function updateJukeboxJam(code: string, input: { name?: string; voting?: boolean; allowGuests?: boolean; allowReplace?: boolean }): Promise<Jam> {
   return (await gql<{ updateJukeboxJam: Jam }>(`mutation($c: String!, $i: UpdateJukeboxJamInput!) { updateJukeboxJam(code: $c, input: $i) { ${JAM} } }`, { c: code, i: input }))
     .updateJukeboxJam;
 }

@@ -2,7 +2,7 @@ import { StrictMode, useEffect, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import "./styles.css";
 import { serverInfo } from "./api/arcanist";
-import { login, refresh } from "./api/client";
+import { login, loginWithCode, refresh } from "./api/client";
 import { app } from "./app";
 import { DesktopBackground } from "./desktop/Background";
 import { Desktop } from "./desktop/Desktop";
@@ -137,6 +137,10 @@ function Login({ onDone }: { onDone: () => void }) {
   const [password, setPassword] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // The password was right: a code finishes the sign-in. Passkeys, and pairing a factor, are the panel's.
+  const [challenge, setChallenge] = useState<string | null>(null);
+  const [code, setCode] = useState("");
+  const [mustPair, setMustPair] = useState(false);
   const server = app.server;
 
   return (
@@ -148,10 +152,18 @@ function Login({ onDone }: { onDone: () => void }) {
           setBusy(true);
           setError(null);
           try {
-            await login(userName.trim(), password);
+            if (challenge) await loginWithCode(challenge, code.trim());
+            else await login(userName.trim(), password);
             onDone();
           } catch (err) {
-            setError(errorText((err as { code?: string }).code ?? "unknown"));
+            const failure = err as { code?: string; challenge?: string };
+            if (failure.code === "second_factor_required" && failure.challenge) setChallenge(failure.challenge);
+            else if (failure.code === "second_factor_setup_required") setMustPair(true);
+            else {
+              if (failure.code === "second_factor_expired") setChallenge(null);
+              setError(errorText(failure.code ?? "unknown"));
+            }
+            setCode("");
           } finally {
             setBusy(false);
           }
@@ -162,19 +174,46 @@ function Login({ onDone }: { onDone: () => void }) {
           <h1 className="text-lg font-semibold">{t("login.title")}</h1>
           {server && <p className="text-xs text-muted-foreground">{t("login.server", { name: server.name, version: server.version })}</p>}
         </div>
-        <label className="grid gap-1.5 text-sm font-medium">
-          {t("login.userName")}
-          <Input autoFocus autoComplete="username" value={userName} onChange={(e) => setUserName(e.target.value)} />
-        </label>
-        <label className="grid gap-1.5 text-sm font-medium">
-          {t("login.password")}
-          <Input type="password" autoComplete="current-password" value={password} onChange={(e) => setPassword(e.target.value)} />
-        </label>
+        {mustPair ? (
+          <p className="text-sm">
+            {t("login.mustPair")}{" "}
+            <a className="underline" href="/admin/login">
+              {t("login.panel")}
+            </a>
+          </p>
+        ) : challenge ? (
+          <>
+            <label className="grid gap-1.5 text-sm font-medium">
+              {t("login.code")}
+              <Input autoFocus autoComplete="one-time-code" value={code} onChange={(e) => setCode(e.target.value)} />
+              <span className="text-xs font-normal text-muted-foreground">{t("login.codeHelp")}</span>
+            </label>
+            <p className="text-xs text-muted-foreground">
+              {t("login.passkey")}{" "}
+              <a className="underline" href="/admin/login">
+                {t("login.panel")}
+              </a>
+            </p>
+          </>
+        ) : (
+          <>
+            <label className="grid gap-1.5 text-sm font-medium">
+              {t("login.userName")}
+              <Input autoFocus autoComplete="username" value={userName} onChange={(e) => setUserName(e.target.value)} />
+            </label>
+            <label className="grid gap-1.5 text-sm font-medium">
+              {t("login.password")}
+              <Input type="password" autoComplete="current-password" value={password} onChange={(e) => setPassword(e.target.value)} />
+            </label>
+          </>
+        )}
         {error && <p className="text-sm text-[var(--destructive)]">{error}</p>}
-        <Button type="submit" disabled={busy || !userName.trim() || !password}>
-          {busy && <Spinner />}
-          {t("login.submit")}
-        </Button>
+        {!mustPair && (
+          <Button type="submit" disabled={busy || (challenge ? !code.trim() : !userName.trim() || !password)}>
+            {busy && <Spinner />}
+            {t("login.submit")}
+          </Button>
+        )}
       </form>
     </div>
   );

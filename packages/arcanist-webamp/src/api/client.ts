@@ -13,6 +13,8 @@ export class ApiError extends Error {
   constructor(
     public readonly code: string,
     public readonly status = 0,
+    /** What the sign-in goes on with, when the password was right and a second factor is needed. */
+    public readonly challenge?: string,
   ) {
     super(code);
   }
@@ -65,7 +67,7 @@ function clear(): void {
 async function problem(response: Response): Promise<ApiError> {
   try {
     const body = await response.json();
-    return new ApiError(body.code ?? "unknown", response.status);
+    return new ApiError(body.code ?? "unknown", response.status, body.challenge ?? undefined);
   } catch {
     return new ApiError(response.status >= 500 ? "server_error" : "unknown", response.status);
   }
@@ -98,6 +100,18 @@ export async function login(userName: string, password: string): Promise<void> {
     headers: { "Content-Type": "application/json" },
     credentials: "same-origin",
     body: JSON.stringify({ userName, password, deviceName: "Webamp", useCookie: true }),
+  });
+  if (!response.ok) throw await problem(response);
+  accept(await response.json());
+}
+
+/** Finishes a sign-in with a code from the authenticator app or a recovery code. */
+export async function loginWithCode(challenge: string, code: string): Promise<void> {
+  const response = await fetch("/rest/v1/auth/login/second-factor", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    credentials: "same-origin",
+    body: JSON.stringify({ challenge, code }),
   });
   if (!response.ok) throw await problem(response);
   accept(await response.json());

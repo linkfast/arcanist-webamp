@@ -10,7 +10,8 @@ import { toast } from "./ui/ui";
 // reports what plays every 5 seconds and on every change, and does what the host's controls ask (skip, pause).
 // Webamp's own list stays: the host may be playing something, or have songs of their own coming; the Jam's go right
 // after the one playing, and the host's own go on when the Jam has none waiting (reported as the host's song).
-// The Jam's order is always the server's: votes, pins and the queue's changes replace the song waiting.
+// The Jam's order is always the server's: votes, pins and the queue's changes replace the song waiting. A Jam started
+// from what plays takes the rest of the list: those songs now wait in its queue, for everyone to see and change.
 
 const STORAGE_KEY = "arcanist.jamHost";
 
@@ -53,8 +54,23 @@ function deviceId(): string {
   }
 }
 
-/** Plays the Jam here, taking over from any other device of the host's. */
-export async function hostJam(code: string): Promise<void> {
+/** What plays and what comes after it in the list, to start a Jam from them; nothing when nothing plays. */
+export function whatPlays(): string[] {
+  const player = app.player;
+  const status = player.webamp.getMediaStatus();
+  const playlist = player.webamp.store.getState().playlist;
+  if ((status !== "PLAYING" && status !== "PAUSED") || playlist.currentTrack == null) return [];
+  return playlist.trackOrder
+    .slice(playlist.trackOrder.indexOf(playlist.currentTrack))
+    .map((id: number) => player.trackOf(id)?.id)
+    .filter((id: string | undefined): id is string => id != null);
+}
+
+/**
+ * Plays the Jam here, taking over from any other device of the host's. `started`: the Jam just started from what plays
+ * here; the song playing is its first entry, and the rest of the list leaves for its queue.
+ */
+export async function hostJam(code: string, started?: api.Jam): Promise<void> {
   stopHosting();
   const device = deviceId();
   const player = app.player;
@@ -67,6 +83,22 @@ export async function hostJam(code: string): Promise<void> {
   let waiting: { entryId: string; webampId: number | null } | null = null;
   let busy = false;
   let stopped = false;
+
+  if (started) {
+    const playlist = player.webamp.store.getState().playlist;
+    const waiting = [...started.queue];
+    const take = (id: number): api.JamEntry | null => {
+      const track = player.trackOf(id);
+      const index = waiting.findIndex((e) => e.song.trackId === track?.id);
+      return index < 0 ? null : waiting.splice(index, 1)[0];
+    };
+    const at = playlist.currentTrack == null ? -1 : playlist.trackOrder.indexOf(playlist.currentTrack);
+    if (at >= 0) {
+      const playing = take(playlist.currentTrack!);
+      if (playing) entries.set(playlist.currentTrack!, playing.id);
+      player.removeFromList(playlist.trackOrder.slice(at + 1).filter((id: number) => take(id) != null));
+    }
+  }
 
   const webampIdOf = (url: string): number | null => {
     const tracks = player.webamp.store.getState().tracks as Record<number, { url: string }>;
@@ -134,6 +166,10 @@ export async function hostJam(code: string): Promise<void> {
     lastReport = now;
     // A song of the host's own (not the Jam's) is told as such, so those taking part see what plays.
     const own = entryId == null && status !== "STOPPED" ? player.current() : null;
+    // What is still to play of the host's own: with nothing, the server may suggest songs when the queue runs out.
+    const at = current == null ? -1 : state.playlist.trackOrder.indexOf(current);
+    const after = at < 0 ? 0 : state.playlist.trackOrder.length - at - 1;
+    const ownSongsLeft = Math.max(0, after - (waiting && waiting.webampId !== current ? 1 : 0));
     const external: api.JamExternalSong | null = own
       ? {
           title: own.title,
@@ -151,6 +187,7 @@ export async function hostJam(code: string): Promise<void> {
         entryId == null && !external ? "STOPPED" : (status as "PLAYING" | "PAUSED" | "STOPPED"),
         player.elapsed() * 1000,
         external,
+        ownSongsLeft,
       );
       // A new song plays: the next one goes after it.
       if (changed) void sync();

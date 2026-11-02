@@ -921,6 +921,11 @@ export interface JamEntry {
   pinned: boolean;
   addedAt: string;
   playedAt: string | null;
+  /** The server suggested it for the group; nobody asked for it (servers with JUKEBOX_JAM_SHARED_CONTROL, as the rest below). */
+  suggested?: boolean;
+  /** For suggestions: who taking part likes it. */
+  likedBy?: string[] | null;
+  votedByYou?: boolean;
 }
 
 export interface Jam {
@@ -938,6 +943,9 @@ export interface Jam {
   /** Anyone taking part may replace the song playing (servers with JUKEBOX_JAM_REPLACE). */
   allowReplace?: boolean;
   saveAsPlaylist?: boolean;
+  suggestions?: boolean;
+  /** It plays on a client that stopped reporting: nothing moves on until it is back or someone takes over. */
+  hostGone?: boolean;
   dj: { kind: "ULTIMATE_AI_DJ"; name: string | null; message: string | null; since: string } | null;
   nowPlaying: { entry: JamEntry | null; external: JamSong | null; paused: boolean; positionMs: number; at: string | null };
   queue: JamEntry[];
@@ -951,6 +959,8 @@ export interface Jam {
     addsLeft: number | null;
     canReplace?: boolean;
     nextReplaceAt?: string | null;
+    canManage?: boolean;
+    canTakeOver?: boolean;
   };
   guests: { id: string; name: string; joinedAt: string; songsAdded: number; removed: boolean }[] | null;
   guestLibraryIds: string[] | null;
@@ -969,20 +979,30 @@ export interface JamSummary {
 }
 
 const JAM_SONG = `trackId title artists album durationMs artworkId artworkUrl`;
-const JAM_ENTRY = `id song { ${JAM_SONG} } state addedBy addedByGuest addedByDj addedByYou votes pinned addedAt playedAt`;
-const jamFields = (replace: boolean, save: boolean) => `code name playlistId host url playsOn rendererId hostClient { kind playerId name version online seenAt } voting voteIntervalSeconds allowGuests
-  ${replace ? "allowReplace" : ""} ${save ? "saveAsPlaylist" : ""} dj { kind name message since } nowPlaying { entry { ${JAM_ENTRY} } external { ${JAM_SONG} } paused positionMs at }
-  queue { ${JAM_ENTRY} } played { ${JAM_ENTRY} } you { participation name guestId canControl nextVoteAt addsLeft ${replace ? "canReplace nextReplaceAt" : ""} }
+const jamEntry = (shared: boolean) => `id song { ${JAM_SONG} } state addedBy addedByGuest addedByDj addedByYou votes pinned addedAt playedAt ${shared ? "suggested likedBy votedByYou" : ""}`;
+const jamFields = (replace: boolean, save: boolean, shared: boolean) => `code name playlistId host url playsOn rendererId hostClient { kind playerId name version online seenAt } voting voteIntervalSeconds allowGuests
+  ${replace ? "allowReplace" : ""} ${save ? "saveAsPlaylist" : ""} ${shared ? "suggestions hostGone" : ""} dj { kind name message since } nowPlaying { entry { ${jamEntry(shared)} } external { ${JAM_SONG} } paused positionMs at }
+  queue { ${jamEntry(shared)} } played { ${jamEntry(shared)} } you { participation name guestId canControl nextVoteAt addsLeft ${replace ? "canReplace nextReplaceAt" : ""} ${shared ? "canManage canTakeOver" : ""} }
   guests { id name joinedAt songsAdded removed } guestLibraryIds startedAt endedAt`;
-let JAM = jamFields(false, false);
+let JAM = jamFields(false, false, false);
 let jamReplace = false;
 let jamSave = false;
+let jamShared = false;
 
-/** Asks for what the server's Jams have: replacing what plays (JUKEBOX_JAM_REPLACE) and the playlist option (JUKEBOX_JAM_SAVE_AS_PLAYLIST). */
-export function enableJamFeatures(replace: boolean, save: boolean): void {
+/**
+ * Asks for what the server's Jams have: replacing what plays (JUKEBOX_JAM_REPLACE), the playlist option
+ * (JUKEBOX_JAM_SAVE_AS_PLAYLIST), and shared sessions with suggestions and taking over (JUKEBOX_JAM_SHARED_CONTROL).
+ */
+export function enableJamFeatures(replace: boolean, save: boolean, shared: boolean): void {
   jamReplace = replace;
   jamSave = save;
-  JAM = jamFields(replace, save);
+  jamShared = shared;
+  JAM = jamFields(replace, save, shared);
+}
+
+/** Whether the server's Jams are shared sessions, with suggestions and taking over. */
+export function jamSharedAvailable(): boolean {
+  return jamShared;
 }
 
 /** Whether the server lets a Jam be kept as a playlist or not when it ends. */
@@ -1008,6 +1028,8 @@ export async function startJukeboxJam(input: {
   guestLibraryIds: string[] | null;
   allowReplace?: boolean;
   saveAsPlaylist?: boolean;
+  suggestions?: boolean;
+  queueTrackIds?: string[];
 }): Promise<Jam> {
   return (await gql<{ startJukeboxJam: Jam }>(`mutation($i: StartJukeboxJamInput!) { startJukeboxJam(input: $i) { ${JAM} } }`, { i: input })).startJukeboxJam;
 }
@@ -1124,16 +1146,18 @@ export async function jukeboxJamAlbumSongs(code: string, albumId: string, guestT
 
 export type JamAction = "SKIP" | "PAUSE" | "RESUME" | "REMOVE" | "PIN" | "UNPIN" | "MOVE";
 
-export async function controlJukeboxJam(code: string, action: JamAction, entryId?: string, position?: number): Promise<Jam> {
+export async function controlJukeboxJam(code: string, action: JamAction, entryId?: string, position?: number, guestToken?: string | null): Promise<Jam> {
+  const guest = jamShared && guestToken ? { g: guestToken } : null;
   return (
-    await gql<{ controlJukeboxJam: Jam }>(`mutation($c: String!, $i: ControlJukeboxJamInput!) { controlJukeboxJam(code: $c, input: $i) { ${JAM} } }`, {
+    await gql<{ controlJukeboxJam: Jam }>(`mutation($c: String!, $i: ControlJukeboxJamInput!${guest ? ", $g: String" : ""}) { controlJukeboxJam(code: $c, input: $i${guest ? ", guestToken: $g" : ""}) { ${JAM} } }`, {
       c: code,
       i: { action, entryId: entryId ?? null, position: position ?? null },
+      ...guest,
     })
   ).controlJukeboxJam;
 }
 
-export async function updateJukeboxJam(code: string, input: { name?: string; voting?: boolean; allowGuests?: boolean; allowReplace?: boolean; saveAsPlaylist?: boolean }): Promise<Jam> {
+export async function updateJukeboxJam(code: string, input: { name?: string; voting?: boolean; allowGuests?: boolean; allowReplace?: boolean; saveAsPlaylist?: boolean; suggestions?: boolean }): Promise<Jam> {
   return (await gql<{ updateJukeboxJam: Jam }>(`mutation($c: String!, $i: UpdateJukeboxJamInput!) { updateJukeboxJam(code: $c, input: $i) { ${JAM} } }`, { c: code, i: input }))
     .updateJukeboxJam;
 }
@@ -1145,6 +1169,11 @@ export async function removeJukeboxJamGuest(code: string, guestId: string): Prom
 
 export async function endJukeboxJam(code: string): Promise<Jam> {
   return (await gql<{ endJukeboxJam: Jam }>(`mutation($c: String!) { endJukeboxJam(code: $c) { ${JAM} } }`, { c: code })).endJukeboxJam;
+}
+
+/** Plays the Jam from now on, when its host's client is gone: the one asking becomes its host. */
+export async function takeOverJukeboxJam(code: string): Promise<Jam> {
+  return (await gql<{ takeOverJukeboxJam: Jam }>(`mutation($c: String!) { takeOverJukeboxJam(code: $c) { ${JAM} } }`, { c: code })).takeOverJukeboxJam;
 }
 
 export async function claimJukeboxJamHost(code: string, deviceId: string): Promise<Jam> {
@@ -1168,10 +1197,11 @@ export async function reportJukeboxJamPlayback(
   state: "PLAYING" | "PAUSED" | "STOPPED",
   positionMs: number,
   external: JamExternalSong | null = null,
+  ownSongsLeft: number | null = null,
 ): Promise<void> {
   await gql(`mutation($c: String!, $i: ReportJukeboxJamPlaybackInput!) { reportJukeboxJamPlayback(code: $c, input: $i) { code } }`, {
     c: code,
-    i: { deviceId, entryId: external ? null : entryId, external, state, positionMs: Math.max(0, Math.round(positionMs)) },
+    i: { deviceId, entryId: external ? null : entryId, external, state, positionMs: Math.max(0, Math.round(positionMs)), ...(jamShared ? { ownSongsLeft } : {}) },
   });
 }
 

@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import {
+  ArrowDown,
   ArrowLeft,
+  ArrowUp,
   Copy,
   Crown,
   ListMusic,
@@ -25,7 +27,7 @@ import { subscribe } from "../api/live";
 import { app } from "../app";
 import { Window, desktopWindows, type DesktopWindow } from "../desktop/windows";
 import { KINDS } from "../desktop/kinds";
-import { hostJam, hostedJam, onHostingChange, stopHosting } from "../jamHost";
+import { hostJam, hostedJam, onHostingChange, stopHosting, whatPlays } from "../jamHost";
 import { errorText, t } from "../i18n";
 import { QrCode } from "../ui/qr";
 import { Badge, Button, Checkbox, Input, Select, Spinner, cn, toast } from "../ui/ui";
@@ -132,11 +134,6 @@ function songArtwork(song: api.JamSong, size: number) {
 
 type JamTab = "queue" | "invite" | "settings";
 
-/** Seconds until a moment (0 when it passed or there is none). */
-function secondsUntil(at: string | null | undefined, now: number): number {
-  return at ? Math.max(0, Math.ceil((Date.parse(at) - now) / 1000)) : 0;
-}
-
 /** A Jam as the one looking sees it: what plays, the queue, inviting, and the host's settings; adding songs is in the Jam's client. */
 export function JamPanel({
   code,
@@ -223,6 +220,29 @@ export function JamPanel({
       </div>
 
       {ended && <p className="rounded-lg border p-3 text-sm">{t("jam.ended")}</p>}
+      {jam.hostGone && !ended && (
+        <div className="grid gap-2 rounded-lg border border-amber-500 p-3 text-sm">
+          <p>{t(you.participation === "HOST" ? "jam.hostGone.you" : "jam.hostGone", { name: jam.host })}</p>
+          <div className="flex flex-wrap gap-2">
+            {canHostHere && you.canTakeOver && (
+              <Button size="sm" disabled={busy} onClick={() => act(async () => {
+                await api.takeOverJukeboxJam(jam.code);
+                await hostJam(jam.code);
+              })}>
+                <Volume2 />
+                {t("jam.takeOver")}
+              </Button>
+            )}
+            {you.canManage && you.participation !== "HOST" && (
+              <Button size="sm" variant="outline" disabled={busy} onClick={() => act(async () => {
+                if (confirm(t("jam.endConfirm"))) return api.endJukeboxJam(jam.code);
+              })}>
+                {t("jam.end")}
+              </Button>
+            )}
+          </div>
+        </div>
+      )}
       {jam.dj && <DjBanner dj={jam.dj} />}
 
       {/* What plays now. */}
@@ -238,6 +258,7 @@ export function JamPanel({
                 {playing.album && ` · ${playing.album}`}
               </span>
             )}
+            {now_.entry?.suggested && <span className="text-xs text-muted-foreground">{t("jam.suggested")}</span>}
             {now_.entry && (now_.entry.addedByDj ? <span className="text-xs text-fuchsia-400">{t("jam.byDj")}</span> : now_.entry.addedBy && <span className="text-xs text-muted-foreground">{now_.entry.addedByYou ? t("jam.byYou") : t("jam.askedBy", { name: now_.entry.addedBy })}</span>)}
           </div>
         </div>
@@ -254,11 +275,11 @@ export function JamPanel({
         )}
         {you.canControl && !ended && (
           <div className="flex flex-wrap gap-2">
-            <Button size="sm" variant="outline" disabled={busy} onClick={() => act(() => api.controlJukeboxJam(jam.code, now_.paused ? "RESUME" : "PAUSE"))}>
+            <Button size="sm" variant="outline" disabled={busy} onClick={() => act(() => api.controlJukeboxJam(jam.code, now_.paused ? "RESUME" : "PAUSE", undefined, undefined, guestToken))}>
               {now_.paused ? <Play /> : <Pause />}
               {now_.paused ? t("jam.resume") : t("jam.pause")}
             </Button>
-            <Button size="sm" variant="outline" disabled={busy} onClick={() => act(() => api.controlJukeboxJam(jam.code, "SKIP"))}>
+            <Button size="sm" variant="outline" disabled={busy} onClick={() => act(() => api.controlJukeboxJam(jam.code, "SKIP", undefined, undefined, guestToken))}>
               <SkipForward />
               {t("jam.skip")}
             </Button>
@@ -301,8 +322,8 @@ export function JamPanel({
         </div>
       )}
 
-      {shown === "queue" && <JamQueue jam={jam} guestToken={guestToken} busy={busy} act={act} now={now} />}
-      {shown === "invite" && <Invite link={link} guests={jam.allowGuests} />}
+      {shown === "queue" && <JamQueue jam={jam} guestToken={guestToken} busy={busy} act={act} />}
+      {shown === "invite" && <Invite link={link} jam={jam} onChanged={setJam} />}
       {shown === "settings" && <JamSettings jam={jam} onChanged={setJam} />}
     </div>
   );
@@ -313,26 +334,21 @@ function JamQueue({
   guestToken,
   busy,
   act,
-  now,
 }: {
   jam: api.Jam;
   guestToken: string | null;
   busy: boolean;
   act: (change: () => Promise<api.Jam | void>) => Promise<void>;
-  now: number;
 }) {
   const you = jam.you;
   const ended = jam.endedAt != null;
   const participating = you.participation !== "VISITOR";
-  const nextVote = secondsUntil(you.nextVoteAt, now);
   return (
     <div className="grid content-start gap-4">
       <section className="grid gap-2">
         {jam.dj && <p className="text-xs text-muted-foreground">{t("jam.djChooses")}</p>}
-        {jam.voting && participating && !ended && (
-          <p className="text-xs text-muted-foreground">{nextVote > 0 ? t("jam.nextVote", { seconds: nextVote }) : t("jam.canVote")}</p>
-        )}
-        {jam.queue.length === 0 && <p className="py-4 text-center text-sm text-muted-foreground">{t("jam.emptyQueue")}</p>}
+        {jam.voting && participating && !ended && <p className="text-xs text-muted-foreground">{t("jam.canVote")}</p>}
+        {jam.queue.length === 0 && <p className="py-4 text-center text-sm text-muted-foreground">{t(jam.suggestions ? "jam.emptyQueueSuggests" : "jam.emptyQueue")}</p>}
         <ol className="grid gap-1">
           {jam.queue.map((entry, i) => (
             <li key={entry.id} className={cn("flex items-center gap-3 rounded-lg p-2", entry.pinned && "bg-accent/60")}>
@@ -343,19 +359,22 @@ function JamQueue({
                   {entry.song.title}
                   {entry.pinned && <Badge>{t("jam.pinned")}</Badge>}
                   {entry.addedByDj && <Badge className="border-fuchsia-500 text-fuchsia-400">{t("jam.djBadge")}</Badge>}
+                  {entry.suggested && <Badge>{t("jam.suggestedBadge")}</Badge>}
                 </span>
                 <span className="truncate text-xs text-muted-foreground">
                   {entry.song.artists.join(", ")}
                   {entry.addedBy && ` · ${entry.addedByYou ? t("jam.byYou") : t("jam.askedBy", { name: entry.addedBy })}`}
+                  {entry.likedBy && entry.likedBy.length > 0 && ` · ${t("jam.likedBy", { names: entry.likedBy.join(", ") })}`}
                 </span>
               </span>
               {jam.voting && (
                 <Button
                   size="sm"
-                  variant="outline"
+                  variant={entry.votedByYou ? "default" : "outline"}
                   className="tabular-nums"
-                  disabled={busy || ended || !participating || nextVote > 0}
-                  title={nextVote > 0 ? t("jam.nextVote", { seconds: nextVote }) : t("jam.vote")}
+                  disabled={busy || ended || !participating}
+                  aria-pressed={entry.votedByYou === true}
+                  title={entry.votedByYou ? t("jam.unvote") : t("jam.vote")}
                   onClick={() => act(() => api.voteJukeboxJam(jam.code, entry.id, guestToken))}
                 >
                   <ThumbsUp />
@@ -364,13 +383,37 @@ function JamQueue({
               )}
               {you.canControl && !ended && (
                 <>
+                  {!jam.voting && !jam.dj && (
+                    <>
+                      <Button
+                        size="icon-sm"
+                        variant="ghost"
+                        aria-label={t("jam.moveUp")}
+                        title={t("jam.moveUp")}
+                        disabled={busy || i === 0}
+                        onClick={() => act(() => api.controlJukeboxJam(jam.code, "MOVE", entry.id, i - 1, guestToken))}
+                      >
+                        <ArrowUp />
+                      </Button>
+                      <Button
+                        size="icon-sm"
+                        variant="ghost"
+                        aria-label={t("jam.moveDown")}
+                        title={t("jam.moveDown")}
+                        disabled={busy || i === jam.queue.length - 1}
+                        onClick={() => act(() => api.controlJukeboxJam(jam.code, "MOVE", entry.id, i + 1, guestToken))}
+                      >
+                        <ArrowDown />
+                      </Button>
+                    </>
+                  )}
                   <Button
                     size="icon-sm"
                     variant="ghost"
                     aria-label={entry.pinned ? t("jam.unpin") : t("jam.pin")}
                     title={entry.pinned ? t("jam.unpin") : t("jam.pin")}
                     disabled={busy}
-                    onClick={() => act(() => api.controlJukeboxJam(jam.code, entry.pinned ? "UNPIN" : "PIN", entry.id))}
+                    onClick={() => act(() => api.controlJukeboxJam(jam.code, entry.pinned ? "UNPIN" : "PIN", entry.id, undefined, guestToken))}
                   >
                     {entry.pinned ? <PinOff /> : <Pin />}
                   </Button>
@@ -380,7 +423,7 @@ function JamQueue({
                     aria-label={t("jam.remove")}
                     title={t("jam.remove")}
                     disabled={busy}
-                    onClick={() => act(() => api.controlJukeboxJam(jam.code, "REMOVE", entry.id))}
+                    onClick={() => act(() => api.controlJukeboxJam(jam.code, "REMOVE", entry.id, undefined, guestToken))}
                   >
                     <Trash2 />
                   </Button>
@@ -424,10 +467,30 @@ function JamQueue({
   );
 }
 
-function Invite({ link, guests }: { link: string; guests: boolean }) {
+function Invite({ link, jam, onChanged }: { link: string; jam: api.Jam; onChanged: (jam: api.Jam) => void }) {
+  const hosting = jam.you.participation === "HOST";
+  const sharing = useLoad(() => (hosting ? api.sharing().catch(() => null) : Promise.resolve(null)), [hosting]);
+  const canOpen = hosting && !jam.allowGuests && sharing.data?.jamGuests === true && sharing.data.canShareLinks;
   return (
     <div className="grid gap-3 rounded-xl border p-3">
-      <p className="text-sm">{guests ? t("jam.inviteGuests") : t("jam.inviteUsers")}</p>
+      <p className="text-sm">{jam.allowGuests ? t("jam.inviteGuests") : t("jam.inviteUsers")}</p>
+      {canOpen && (
+        <div>
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={async () => {
+              try {
+                onChanged(await api.updateJukeboxJam(jam.code, { allowGuests: true }));
+              } catch (e) {
+                toast(errorText((e as { code?: string }).code ?? "unknown"), true);
+              }
+            }}
+          >
+            {t("jam.openToGuests")}
+          </Button>
+        </div>
+      )}
       <div className="grid justify-items-center gap-2">
         <QrCode text={link} className="size-56 p-2" />
         <div className="flex w-full items-center gap-2">
@@ -490,6 +553,9 @@ function JamSettings({ jam, onChanged }: { jam: api.Jam; onChanged: (jam: api.Ja
       {api.jamReplaceAvailable() && (
         <Checkbox checked={jam.allowReplace === true} onChange={(allowReplace) => void update({ allowReplace })} label={t("jam.replaceLabel")} />
       )}
+      {api.jamSharedAvailable() && (
+        <Checkbox checked={jam.suggestions === true} onChange={(suggestions) => void update({ suggestions })} label={t("jam.suggestionsLabel")} />
+      )}
       {api.jamSaveOptionAvailable() && (
         <Checkbox checked={jam.saveAsPlaylist !== false} onChange={(saveAsPlaylist) => void update({ saveAsPlaylist })} label={t("jam.saveLabel")} />
       )}
@@ -526,6 +592,33 @@ export function JukeboxJamWindow({ window: win }: { window: DesktopWindow }) {
 function JamList({ onOpen }: { onOpen: (code: string) => void }) {
   const { data, error, loading, reload } = useLoad(() => api.myJukeboxJams(), []);
   const [starting, setStarting] = useState(false);
+  const [busy, setBusy] = useState(false);
+
+  /** One tap: a Jam here, from what plays, with what most Jams want; its settings are there to change later. */
+  const startNow = async () => {
+    setBusy(true);
+    try {
+      const jam = await api.startJukeboxJam({
+        name: t("jam.defaultName"),
+        playsOn: "CLIENT",
+        rendererId: null,
+        voting: false,
+        allowGuests: false,
+        guestLibraryIds: app.libraryId ? [app.libraryId] : null,
+        ...(api.jamReplaceAvailable() ? { allowReplace: true } : {}),
+        ...(api.jamSharedAvailable() ? { queueTrackIds: whatPlays() } : {}),
+      });
+      await hostJam(jam.code, jam);
+      void app.refreshPlaylists();
+      reload();
+      onOpen(jam.code);
+    } catch (e) {
+      toast(errorText((e as { code?: string }).code ?? "unknown"), true);
+    } finally {
+      setBusy(false);
+    }
+  };
+
   return (
     <div className="grid content-start gap-4">
       <p className="text-sm text-muted-foreground">{t("jam.intro")}</p>
@@ -539,10 +632,13 @@ function JamList({ onOpen }: { onOpen: (code: string) => void }) {
           }}
         />
       ) : (
-        <div>
-          <Button onClick={() => setStarting(true)}>
-            <Plus />
+        <div className="flex flex-wrap items-center gap-2">
+          <Button disabled={busy} onClick={() => void startNow()}>
+            {busy ? <Spinner /> : <Plus />}
             {t("jam.start")}
+          </Button>
+          <Button variant="ghost" disabled={busy} onClick={() => setStarting(true)}>
+            {t("jam.moreOptions")}
           </Button>
         </div>
       )}
@@ -572,9 +668,10 @@ function JamList({ onOpen }: { onOpen: (code: string) => void }) {
 function StartJam({ onCancel, onStarted }: { onCancel: () => void; onStarted: (code: string) => void }) {
   const [name, setName] = useState(t("jam.defaultName"));
   const [where, setWhere] = useState("CLIENT");
-  const [voting, setVoting] = useState(true);
+  const [voting, setVoting] = useState(false);
   const [guests, setGuests] = useState(false);
-  const [replace, setReplace] = useState(false);
+  const [replace, setReplace] = useState(true);
+  const [suggestions, setSuggestions] = useState(true);
   const [save, setSave] = useState(true);
   const [busy, setBusy] = useState(false);
   const renderers = useLoad(() => api.dlnaRenderers().catch(() => []), []);
@@ -594,9 +691,10 @@ function StartJam({ onCancel, onStarted }: { onCancel: () => void; onStarted: (c
         guestLibraryIds: app.libraryId ? [app.libraryId] : null,
         ...(api.jamReplaceAvailable() ? { allowReplace: replace } : {}),
         ...(api.jamSaveOptionAvailable() ? { saveAsPlaylist: save } : {}),
+        ...(api.jamSharedAvailable() ? { suggestions, ...(playsOn === "CLIENT" ? { queueTrackIds: whatPlays() } : {}) } : {}),
       });
       // Started to play here: this tab hosts it.
-      if (playsOn === "CLIENT") await hostJam(jam.code);
+      if (playsOn === "CLIENT") await hostJam(jam.code, jam);
       void app.refreshPlaylists();
       onStarted(jam.code);
     } catch (e) {
@@ -632,6 +730,7 @@ function StartJam({ onCancel, onStarted }: { onCancel: () => void; onStarted: (c
       <Checkbox checked={voting} onChange={setVoting} label={t("jam.votingLabel")} />
       {guestsAllowed && <Checkbox checked={guests} onChange={setGuests} label={t("jam.guestsLabel")} />}
       {api.jamReplaceAvailable() && <Checkbox checked={replace} onChange={setReplace} label={t("jam.replaceLabel")} />}
+      {api.jamSharedAvailable() && <Checkbox checked={suggestions} onChange={setSuggestions} label={t("jam.suggestionsLabel")} />}
       {api.jamSaveOptionAvailable() && <Checkbox checked={save} onChange={setSave} label={t("jam.saveLabel")} />}
       <div className="flex justify-end gap-2">
         <Button variant="ghost" onClick={onCancel}>

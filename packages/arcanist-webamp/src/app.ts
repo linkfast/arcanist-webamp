@@ -61,7 +61,7 @@ export const app = {
     api.setUploadSource(info.features.includes("EXTENSION_APPS"));
     api.enableMusicVideos(info.features.includes("MUSIC_VIDEOS"));
     api.enablePlaylistSharing(info.features.includes("PLAYLIST_SHARING"));
-    api.enableJamFeatures(info.features.includes("JUKEBOX_JAM_REPLACE"), info.features.includes("JUKEBOX_JAM_SAVE_AS_PLAYLIST"));
+    api.enableJamFeatures(info.features.includes("JUKEBOX_JAM_REPLACE"), info.features.includes("JUKEBOX_JAM_SAVE_AS_PLAYLIST"), info.features.includes("JUKEBOX_JAM_SHARED_CONTROL"));
   },
   /** The server's other web players, to switch to (loaded once). */
   get otherPlayers(): api.AvailablePlayer[] {

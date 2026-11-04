@@ -1,4 +1,5 @@
 import { useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore, type ReactNode } from "react";
+import { createPortal } from "react-dom";
 import { Check, ChevronRight } from "lucide-react";
 import type { ContextMenuItem } from "../../../webamp/js/types";
 import { cn } from "./ui";
@@ -131,9 +132,13 @@ export function MenuList({ items, onDone }: { items: MenuItem[]; onDone: () => v
               <span className="flex-1 truncate">{item.label}</span>
               {hasChildren && <ChevronRight className="text-muted-foreground" />}
             </button>
-            {hasChildren && open?.index === i && (
-              <MenuPanel items={item.children as MenuItem[]} x={open.rect.right + 2} y={open.rect.top - 5} side={open.rect.left - 2} onDone={onDone} />
-            )}
+            {/* In the body: the start menu's blur would make it the panel's frame instead of the screen, and clip it. */}
+            {hasChildren &&
+              open?.index === i &&
+              createPortal(
+                <MenuPanel items={item.children as MenuItem[]} x={open.rect.right + 2} y={open.rect.top - 5} side={open.rect.left - 2} onDone={onDone} />,
+                document.body,
+              )}
           </li>
         );
       })}

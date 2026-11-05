@@ -362,23 +362,50 @@ function dayLabel(date: Date): string {
 }
 
 function PlayedView({ libraryId }: { libraryId: string | null }) {
-  const pages = usePages((after) => api.playHistory(after), []);
+  // Reads it again after taking something from it.
+  const [version, setVersion] = useState(0);
+  const pages = usePages((after) => api.playHistory(after), [version]);
   // The history is the user's across libraries: with one chosen, only its songs.
   const items = libraryId ? pages.items.filter((i) => i.track.libraryIds?.includes(libraryId) ?? true) : pages.items;
-  const days: { key: string; label: string; tracks: api.Track[] }[] = [];
+  const days: { key: string; label: string; tracks: api.Track[]; plays: string[] }[] = [];
   for (const item of items) {
     const date = new Date(item.playedAt);
     const key = dayOf(date);
-    if (days.at(-1)?.key !== key) days.push({ key, label: dayLabel(date), tracks: [] });
+    if (days.at(-1)?.key !== key) days.push({ key, label: dayLabel(date), tracks: [], plays: [] });
     days.at(-1)!.tracks.push(item.track);
+    days.at(-1)!.plays.push(item.id);
   }
+  const remove = (input: Parameters<typeof api.deletePlays>[0]) => run(() => api.deletePlays(input), () => setVersion((v) => v + 1));
   return (
     <div className="grid gap-5">
+      {app.managesPlayHistory && (
+        <p className="text-right text-xs">
+          <a className="underline" href="/admin/listening/stats" target="_blank" rel="noreferrer">
+            {t("recent.myStats")}
+          </a>
+        </p>
+      )}
       {days.length === 0 && !pages.loading && !pages.error && <p className="py-6 text-center text-sm text-muted-foreground">{t("recent.empty")}</p>}
       {days.map((day) => (
         <section key={day.key} className="grid gap-2">
           <Heading actions={<ListActions tracks={day.tracks} />}>{day.label}</Heading>
-          <TrackList tracks={day.tracks} />
+          <TrackList
+            tracks={day.tracks}
+            extraMenu={
+              app.managesPlayHistory
+                ? (indexes) => [
+                    { type: "separator" },
+                    { label: t("recent.removePlay"), onClick: () => remove({ playIds: indexes.map((i) => day.plays[i]) }) },
+                    {
+                      label: t("recent.removeSong"),
+                      onClick: () => {
+                        if (confirm(t("recent.removeSongConfirm"))) remove({ trackIds: indexes.map((i) => day.tracks[i].id) });
+                      },
+                    },
+                  ]
+                : undefined
+            }
+          />
         </section>
       ))}
       <Loading error={pages.error} loading={pages.loading} />

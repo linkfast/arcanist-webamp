@@ -495,6 +495,11 @@ export interface PlayHistoryItem {
 }
 
 /** What the user played, newest first. */
+/** Takes single plays, or whole songs, from the user's history and statistics. */
+export async function deletePlays(input: { playIds?: string[]; trackIds?: string[] }): Promise<void> {
+  await gql(`mutation($i: DeletePlaysInput!) { deletePlays(input: $i) { deleted } }`, { i: input });
+}
+
 export async function playHistory(after: string | null): Promise<Page<PlayHistoryItem>> {
   const page = (
     await gql<{ playHistory: { items: PlayHistoryItem[]; nextCursor: string | null } }>(

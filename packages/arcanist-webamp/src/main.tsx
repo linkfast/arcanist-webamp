@@ -132,6 +132,12 @@ function Root() {
   );
 }
 
+/** The panel's login, which comes back here (it only goes back to /players/…, also when this player is the one on /). */
+function panelLogin(): string {
+  const page = location.pathname.startsWith("/players/") ? location.pathname : "/players/webamp/";
+  return `/admin/login?returnUrl=${encodeURIComponent(page + location.hash)}`;
+}
+
 function Login({ onDone }: { onDone: () => void }) {
   const [userName, setUserName] = useState("");
   const [password, setPassword] = useState("");
@@ -177,7 +183,7 @@ function Login({ onDone }: { onDone: () => void }) {
         {mustPair ? (
           <p className="text-sm">
             {t("login.mustPair")}{" "}
-            <a className="underline" href="/admin/login">
+            <a className="underline" href={panelLogin()}>
               {t("login.panel")}
             </a>
           </p>
@@ -190,7 +196,7 @@ function Login({ onDone }: { onDone: () => void }) {
             </label>
             <p className="text-xs text-muted-foreground">
               {t("login.passkey")}{" "}
-              <a className="underline" href="/admin/login">
+              <a className="underline" href={panelLogin()}>
                 {t("login.panel")}
               </a>
             </p>

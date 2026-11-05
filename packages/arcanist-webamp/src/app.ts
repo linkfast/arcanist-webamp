@@ -144,6 +144,11 @@ export const app = {
   get canUploadToCloud(): boolean {
     return myCloud != null && myCloud.enabled && myCloud.state === "LINKED" && myCloud.tier !== "NONE" && session.can("DOWNLOAD");
   },
+  /** Whether users can take plays from their history here. */
+  get managesPlayHistory(): boolean {
+    return server?.features.includes("PLAY_HISTORY_MANAGEMENT") ?? false;
+  },
+
   /** Whether the server keeps the user's history of uploads. */
   get hasUploadHistory(): boolean {
     return server?.features.includes("UPLOAD_HISTORY") ?? false;

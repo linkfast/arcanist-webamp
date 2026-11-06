@@ -838,6 +838,15 @@ export interface Sharing {
   canShareLinks: boolean;
 }
 
+/** Whether a new Jukebox Jam deletes its playlist when it ends unless told otherwise; null when the server does not say (before the setting: it kept it). */
+export async function jamDeletesPlaylist(): Promise<boolean | null> {
+  try {
+    return (await gql<{ sharing: { jamDeletePlaylist: boolean } }>(`query { sharing { jamDeletePlaylist } }`)).sharing.jamDeletePlaylist;
+  } catch {
+    return null;
+  }
+}
+
 export async function sharing(): Promise<Sharing> {
   return (await gql<{ sharing: Sharing }>(`query { sharing { publicLinks jamGuests guestAddLimit maxGuests canShareLinks } }`)).sharing;
 }

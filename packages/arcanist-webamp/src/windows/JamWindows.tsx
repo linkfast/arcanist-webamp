@@ -557,7 +557,7 @@ function JamSettings({ jam, onChanged }: { jam: api.Jam; onChanged: (jam: api.Ja
         <Checkbox checked={jam.suggestions === true} onChange={(suggestions) => void update({ suggestions })} label={t("jam.suggestionsLabel")} />
       )}
       {api.jamSaveOptionAvailable() && (
-        <Checkbox checked={jam.saveAsPlaylist !== false} onChange={(saveAsPlaylist) => void update({ saveAsPlaylist })} label={t("jam.saveLabel")} />
+        <Checkbox checked={jam.saveAsPlaylist === false} onChange={(remove) => void update({ saveAsPlaylist: !remove })} label={t("jam.deleteLabel")} />
       )}
     </div>
   );
@@ -672,7 +672,9 @@ function StartJam({ onCancel, onStarted }: { onCancel: () => void; onStarted: (c
   const [guests, setGuests] = useState(false);
   const [replace, setReplace] = useState(true);
   const [suggestions, setSuggestions] = useState(true);
-  const [save, setSave] = useState(true);
+  // Untouched (null), the server's choice: it comes ticked as the server says and is not sent.
+  const [remove, setRemove] = useState<boolean | null>(null);
+  const removeDefault = useLoad(() => api.jamDeletesPlaylist(), []);
   const [busy, setBusy] = useState(false);
   const renderers = useLoad(() => api.dlnaRenderers().catch(() => []), []);
   const sharing = useLoad(() => api.sharing().catch(() => null), []);
@@ -690,7 +692,7 @@ function StartJam({ onCancel, onStarted }: { onCancel: () => void; onStarted: (c
         allowGuests: guests && guestsAllowed,
         guestLibraryIds: app.libraryId ? [app.libraryId] : null,
         ...(api.jamReplaceAvailable() ? { allowReplace: replace } : {}),
-        ...(api.jamSaveOptionAvailable() ? { saveAsPlaylist: save } : {}),
+        ...(api.jamSaveOptionAvailable() && remove !== null ? { saveAsPlaylist: !remove } : {}),
         ...(api.jamSharedAvailable() ? { suggestions, ...(playsOn === "CLIENT" ? { queueTrackIds: whatPlays() } : {}) } : {}),
       });
       // Started to play here: this tab hosts it.
@@ -731,7 +733,9 @@ function StartJam({ onCancel, onStarted }: { onCancel: () => void; onStarted: (c
       {guestsAllowed && <Checkbox checked={guests} onChange={setGuests} label={t("jam.guestsLabel")} />}
       {api.jamReplaceAvailable() && <Checkbox checked={replace} onChange={setReplace} label={t("jam.replaceLabel")} />}
       {api.jamSharedAvailable() && <Checkbox checked={suggestions} onChange={setSuggestions} label={t("jam.suggestionsLabel")} />}
-      {api.jamSaveOptionAvailable() && <Checkbox checked={save} onChange={setSave} label={t("jam.saveLabel")} />}
+      {api.jamSaveOptionAvailable() && (
+        <Checkbox checked={remove ?? removeDefault.data ?? false} onChange={setRemove} label={t("jam.deleteLabel")} />
+      )}
       <div className="flex justify-end gap-2">
         <Button variant="ghost" onClick={onCancel}>
           {t("common.cancel")}

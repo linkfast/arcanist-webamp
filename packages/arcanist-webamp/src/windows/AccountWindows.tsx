@@ -1,11 +1,12 @@
 import { useRef, useState } from "react";
-import { CircleUser, LogOut, Settings2, Upload, UserCog } from "lucide-react";
+import { CircleUser, Copy, LogOut, Settings2, Upload, UserCog, UserPlus } from "lucide-react";
 import * as api from "../api/arcanist";
 import { logout, refresh, session } from "../api/client";
 import { app, managesServer, openPanel } from "../app";
 import { Window, desktopWindows, type DesktopWindow } from "../desktop/windows";
 import { errorText, t } from "../i18n";
-import { Button, Select, Spinner, cn } from "../ui/ui";
+import { QrCode } from "../ui/qr";
+import { Button, Select, Spinner, cn, toast } from "../ui/ui";
 import { Loading, useLoad } from "./common";
 
 interface UploadItem {
@@ -138,12 +139,62 @@ export function UploadWindow({ window: win }: { window: DesktopWindow }) {
   );
 }
 
+/**
+ * An invitation to this server, for those who may make them (INVITE, with the server's public URL): its QR code adds
+ * the server to Ultimate on a phone, its link to Ultimate Desktop, and with it someone can ask for an account when
+ * the server allows it. Hidden with servers that have no invitations.
+ */
+function InviteSomeone() {
+  const allowed = useLoad(() => api.canInvite(), []);
+  const [invitation, setInvitation] = useState<api.NewInvitation | null>(null);
+  const [busy, setBusy] = useState(false);
+  if (!allowed.data) return null;
+
+  const create = async () => {
+    setBusy(true);
+    try {
+      setInvitation(await api.createInvitation());
+    } catch (e) {
+      toast(errorText((e as { code?: string }).code ?? "unknown"), true);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className="grid gap-2 border-t pt-4">
+      <p className="font-medium">{t("invite.title")}</p>
+      {invitation ? (
+        <>
+          <QrCode text={invitation.url} className="size-48 justify-self-center p-2" />
+          <p className="text-muted-foreground">{t(invitation.signupAllowed ? "invite.howWithSignup" : "invite.how")}</p>
+          <div className="flex gap-2">
+            <input readOnly className="min-w-0 flex-1 rounded-md border bg-transparent px-2 font-mono text-xs" value={invitation.url} />
+            <Button variant="outline" size="sm" onClick={() => void navigator.clipboard.writeText(invitation.url).then(() => toast(t("invite.copied")))}>
+              <Copy /> {t("invite.copy")}
+            </Button>
+          </div>
+          <p className="text-xs text-muted-foreground">{t("invite.orType", { url: invitation.serverUrl, code: invitation.code })}</p>
+          <p className="text-xs text-muted-foreground">{t("invite.once")}</p>
+        </>
+      ) : (
+        <>
+          <p className="text-muted-foreground">{t("invite.help")}</p>
+          <Button size="sm" className="justify-self-start" disabled={busy} onClick={() => void create()}>
+            {busy ? <Spinner /> : <UserPlus />} {t("invite.create")}
+          </Button>
+        </>
+      )}
+    </div>
+  );
+}
+
 /** Who is signed in, their account and the panel (in Arcanist's panel), signing out, and the source code (AGPL §13). */
 export function AccountWindow({ window: win }: { window: DesktopWindow }) {
   const user = session.user;
   const server = app.server;
   return (
-    <Window window={win} title={t("account.title")} icon={<CircleUser className="size-4" />} width={440} height={380}>
+    <Window window={win} title={t("account.title")} icon={<CircleUser className="size-4" />} width={440} height={520}>
       <div className="grid gap-4 text-sm">
         <p>{t("account.signedIn", { name: user?.displayName || user?.userName || "" })}</p>
         {server && <p className="text-muted-foreground">{t("login.server", { name: server.name, version: server.version })}</p>}
@@ -167,6 +218,7 @@ export function AccountWindow({ window: win }: { window: DesktopWindow }) {
             <LogOut /> {t("account.logout")}
           </Button>
         </div>
+        <InviteSomeone />
         <p className="border-t pt-4 text-xs text-muted-foreground">{t("account.about")}</p>
         {server?.sourceUrl && (
           <a className="text-xs underline" href={server.sourceUrl} target="_blank" rel="noreferrer">

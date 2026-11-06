@@ -838,6 +838,34 @@ export interface Sharing {
   canShareLinks: boolean;
 }
 
+/** A new invitation to the server: its link (for the QR code), the server's address and the code, shown once. */
+export interface NewInvitation {
+  id: string;
+  code: string;
+  url: string;
+  serverUrl: string;
+  expiresAt: string;
+  signupAllowed: boolean;
+}
+
+/** Whether the user may make invitations (INVITE, with the server's public URL); false with servers that have none. */
+export async function canInvite(): Promise<boolean> {
+  try {
+    return (await gql<{ sharing: { canInvite: boolean } }>(`query { sharing { canInvite } }`)).sharing.canInvite;
+  } catch {
+    return false;
+  }
+}
+
+export async function createInvitation(note?: string): Promise<NewInvitation> {
+  return (
+    await gql<{ createInvitation: NewInvitation }>(
+      `mutation ($input: CreateInvitationInput) { createInvitation(input: $input) { id code url serverUrl expiresAt signupAllowed } }`,
+      { input: { note: note ?? null } },
+    )
+  ).createInvitation;
+}
+
 /** Whether a new Jukebox Jam deletes its playlist when it ends unless told otherwise; null when the server does not say (before the setting: it kept it). */
 export async function jamDeletesPlaylist(): Promise<boolean | null> {
   try {

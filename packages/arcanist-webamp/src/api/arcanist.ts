@@ -152,6 +152,23 @@ export interface Lyrics {
   plain: string | null;
   synced: { timeMs: number; text: string }[] | null;
   instrumental: boolean;
+  /** Their language (ISO 639-1), when the server knows it (LYRICS_READINGS). */
+  language?: string | null;
+  /** How each line shown is pronounced (romaji, pinyin…; furigana as ruby), when it needs it (LYRICS_READINGS). */
+  readings?: (LyricsLineReading | null)[] | null;
+}
+
+export interface LyricsLineReading {
+  romanized: string | null;
+  ruby: { text: string; reading: string | null }[] | null;
+}
+
+/** A song's lyrics in another language (LYRICS_TRANSLATION): its lines go with those of the lyrics. */
+export interface LyricsTranslation {
+  status: "READY" | "NOT_REQUESTED" | "QUEUED" | "WORKING" | "FAILED" | "UNAVAILABLE" | "SAME_LANGUAGE";
+  lines: string[] | null;
+  engine: string | null;
+  position: number | null;
 }
 
 const VIDEO = `id title artist durationMs width height isLive artworkId trackId sync audioMode streamUrl trackAudioUrl videoAudioUrl hlsUrl`;
@@ -529,13 +546,42 @@ export async function mixTracks(id: string): Promise<Track[]> {
     .tracks;
 }
 
-export async function lyrics(trackId: string): Promise<Lyrics> {
+/** A song's lyrics; with <c>readings</c> (servers with LYRICS_READINGS), how each line is pronounced. */
+export async function lyrics(trackId: string, readings = false): Promise<Lyrics> {
+  const extra = readings ? " language readings { romanized ruby { text reading } }" : "";
   return (
     await gql<{ trackLyrics: Lyrics }>(
-      `query($id: ID!) { trackLyrics(trackId: $id) { plain synced { timeMs text } instrumental } }`,
+      `query($id: ID!) { trackLyrics(trackId: $id) { plain synced { timeMs text } instrumental${extra} } }`,
       { id: trackId },
     )
   ).trackLyrics;
+}
+
+const TRANSLATION = "status lines engine position";
+
+/** The song's lyrics in another language: ready, on their way, or not asked for yet. */
+export async function lyricsTranslation(trackId: string, language: string): Promise<LyricsTranslation> {
+  return (
+    await gql<{ lyricsTranslation: LyricsTranslation }>(
+      `query($id: ID!, $language: String!) { lyricsTranslation(trackId: $id, language: $language) { ${TRANSLATION} } }`,
+      { id: trackId, language },
+    )
+  ).lyricsTranslation;
+}
+
+/** Asks for the song's lyrics in another language; the server makes the translation once, for everyone. */
+export async function requestLyricsTranslation(trackId: string, language: string): Promise<LyricsTranslation> {
+  return (
+    await gql<{ requestLyricsTranslation: LyricsTranslation }>(
+      `mutation($id: ID!, $language: String!) { requestLyricsTranslation(trackId: $id, language: $language) { ${TRANSLATION} } }`,
+      { id: trackId, language },
+    )
+  ).requestLyricsTranslation;
+}
+
+/** The languages lyrics can be translated into on this server. */
+export async function lyricsTranslationLanguages(): Promise<string[]> {
+  return (await gql<{ lyricsTranslationLanguages: string[] }>(`query { lyricsTranslationLanguages }`)).lyricsTranslationLanguages;
 }
 
 /** Where recognizing a song's words with a model (Lyrics Sync) stands (servers with LYRICS_TRANSCRIPTION). */
